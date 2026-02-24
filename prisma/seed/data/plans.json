@@ -1,0 +1,62 @@
+[
+  {
+    "name": "Gratuito",
+    "slug": "free",
+    "priceMonthly": null,
+    "creditsMonthly": 10,
+    "maxQuestionsPerExam": 5,
+    "features": {
+      "watermark": true,
+      "pdf": true,
+      "questionBank": false,
+      "commentedAnswerKey": false,
+      "multiTeacher": false,
+      "reports": false
+    }
+  },
+  {
+    "name": "Básico",
+    "slug": "basic",
+    "priceMonthly": 29.90,
+    "creditsMonthly": 100,
+    "maxQuestionsPerExam": 15,
+    "features": {
+      "watermark": false,
+      "pdf": true,
+      "questionBank": false,
+      "commentedAnswerKey": false,
+      "multiTeacher": false,
+      "reports": false
+    }
+  },
+  {
+    "name": "Pro",
+    "slug": "pro",
+    "priceMonthly": 69.90,
+    "creditsMonthly": 500,
+    "maxQuestionsPerExam": 30,
+    "features": {
+      "watermark": false,
+      "pdf": true,
+      "questionBank": true,
+      "commentedAnswerKey": true,
+      "multiTeacher": false,
+      "reports": false
+    }
+  },
+  {
+    "name": "Escola",
+    "slug": "school",
+    "priceMonthly": 199.90,
+    "creditsMonthly": 2000,
+    "maxQuestionsPerExam": 50,
+    "features": {
+      "watermark": false,
+      "pdf": true,
+      "questionBank": true,
+      "commentedAnswerKey": true,
+      "multiTeacher": true,
+      "reports": true
+    }
+  }
+]

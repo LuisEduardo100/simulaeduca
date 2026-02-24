@@ -1,0 +1,131 @@
+{
+  "evaluation": "SPAECE",
+  "subject": "Matemática",
+  "gradeLevel": "9º ano",
+  "themes": [
+    {
+      "name": "Interagindo com Números e Funções",
+      "romanNumeral": "I",
+      "descriptors": [
+        {
+          "code": "D07",
+          "description": "Resolver situação problema utilizando MMC ou MDC"
+        },
+        {
+          "code": "D08",
+          "description": "Ordenar ou identificar localização de números inteiros na reta numérica"
+        },
+        {
+          "code": "D10",
+          "description": "Resolver problema com números inteiros envolvendo suas operações"
+        },
+        {
+          "code": "D11",
+          "description": "Ordenar ou identificar localização de números racionais na reta numérica"
+        },
+        {
+          "code": "D12",
+          "description": "Resolver problema com números racionais envolvendo suas operações"
+        },
+        {
+          "code": "D13",
+          "description": "Reconhecer diferentes representações de um mesmo número racional"
+        },
+        {
+          "code": "D15",
+          "description": "Resolver problema com adição ou subtração de racionais (frações/decimais)"
+        },
+        {
+          "code": "D17",
+          "description": "Resolver situação problema utilizando porcentagem"
+        },
+        {
+          "code": "D18",
+          "description": "Resolver situação envolvendo variação proporcional direta ou inversa"
+        },
+        {
+          "code": "D19",
+          "description": "Resolver problema envolvendo juros simples"
+        },
+        {
+          "code": "D21",
+          "description": "Efetuar cálculos com números irracionais"
+        },
+        {
+          "code": "D24",
+          "description": "Fatorar e simplificar expressões algébricas"
+        },
+        {
+          "code": "D25",
+          "description": "Resolver situação-problema com equação de 1º grau"
+        },
+        {
+          "code": "D26",
+          "description": "Resolver situação-problema com equação de 2º grau"
+        },
+        {
+          "code": "D27",
+          "description": "Resolver situação-problema com sistema de equações do 1º grau"
+        }
+      ]
+    },
+    {
+      "name": "Convivendo com a Geometria",
+      "romanNumeral": "II",
+      "descriptors": [
+        {
+          "code": "D48",
+          "description": "Identificar e classificar figuras planas"
+        },
+        {
+          "code": "D49",
+          "description": "Resolver problemas envolvendo semelhança de figuras planas"
+        },
+        {
+          "code": "D50",
+          "description": "Resolver situação-problema com Teorema de Pitágoras"
+        },
+        {
+          "code": "D51",
+          "description": "Resolver problemas usando propriedades dos polígonos"
+        },
+        {
+          "code": "D52",
+          "description": "Identificar planificações de poliedros e corpos redondos"
+        }
+      ]
+    },
+    {
+      "name": "Vivenciando as Medidas",
+      "romanNumeral": "III",
+      "descriptors": [
+        {
+          "code": "D65",
+          "description": "Calcular perímetro de figuras planas"
+        },
+        {
+          "code": "D67",
+          "description": "Resolver problema envolvendo cálculo de área"
+        },
+        {
+          "code": "D69",
+          "description": "Resolver problemas envolvendo noções de volume"
+        }
+      ]
+    },
+    {
+      "name": "Tratamento da Informação",
+      "romanNumeral": "IV",
+      "descriptors": [
+        {
+          "code": "D75",
+          "description": "Resolver problema com informações em tabelas ou gráficos"
+        },
+        {
+          "code": "D77",
+          "description": "Resolver problemas usando média aritmética"
+        }
+      ]
+    }
+  ]
+}

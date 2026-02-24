@@ -1,0 +1,34 @@
+❌ Erro no seed: PrismaClientKnownRequestError: 
+Invalid `prisma.evaluation.upsert()` invocation in
+C:\Users\luis.albuquerque\Desktop\simulados\simulaeduca\prisma\seed\seed.ts:23:42
+
+  20 
+  21 // ─── Avaliações ────────────────────────────────────────────────────────────
+  22 console.log("📋 Criando avaliações...");
+→ 23 const spaece = await prisma.evaluation.upsert(
+Can't reach database server at base
+    at zr.handleRequestError (C:\Users\luis.albuquerque\Desktop\simulados\simulaeduca\node_modules\@prisma\client\src\runtime\RequestHandler.ts:237:13)
+    at zr.handleAndLogRequestError (C:\Users\luis.albuquerque\Desktop\simulados\simulaeduca\node_modules\@prisma\client\src\runtime\RequestHandler.ts:183:12)
+    at zr.request (C:\Users\luis.albuquerque\Desktop\simulados\simulaeduca\node_modules\@prisma\client\src\runtime\RequestHandler.ts:152:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async a (C:\Users\luis.albuquerque\Desktop\simulados\simulaeduca\node_modules\@prisma\client\src\runtime\getPrismaClient.ts:808:24)
+    at async main (C:\Users\luis.albuquerque\Desktop\simulados\simulaeduca\prisma\seed\seed.ts:23:18) {
+  code: 'P1001',
+  meta: {
+    modelName: 'Evaluation',
+    driverAdapterError: DriverAdapterError: DatabaseNotReachable
+        at PrismaPgAdapter.onError (C:\Users\luis.albuquerque\Desktop\simulados\simulaeduca\node_modules\@prisma\adapter-pg\dist\index.js:687:11)
+        at C:\Users\luis.albuquerque\Desktop\simulados\simulaeduca\node_modules\@prisma\adapter-pg\dist\index.js:720:68
+        at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+        at async PrismaPgAdapter.startTransaction (C:\Users\luis.albuquerque\Desktop\simulados\simulaeduca\node_modules\@prisma\adapter-pg\dist\index.js:720:18)
+        at async $t.#r (C:\Users\luis.albuquerque\Desktop\simulados\simulaeduca\node_modules\@prisma\client-engine-runtime\src\transaction-manager\transaction-manager.ts:125:31)
+        at async $t.startInternalTransaction (C:\Users\luis.albuquerque\Desktop\simulados\simulaeduca\node_modules\@prisma\client-engine-runtime\src\transaction-manager\transaction-manager.ts:92:12)
+        at async e.interpretNode (C:\Users\luis.albuquerque\Desktop\simulados\simulaeduca\node_modules\@prisma\client-engine-runtime\src\interpreter\query-interpreter.ts:255:33)
+        at async e.run (C:\Users\luis.albuquerque\Desktop\simulados\simulaeduca\node_modules\@prisma\client-engine-runtime\src\interpreter\query-interpreter.ts:93:23)
+        at async e.execute (C:\Users\luis.albuquerque\Desktop\simulados\simulaeduca\node_modules\@prisma\client\src\runtime\core\engines\client\LocalExecutor.ts:81:12)
+        at async qt.request (C:\Users\luis.albuquerque\Desktop\simulados\simulaeduca\node_modules\@prisma\client\src\runtime\core\engines\client\ClientEngine.ts:492:22) {
+      cause: [Object]
+    }
+  },
+  clientVersion: '7.4.1'
+}
