@@ -20,6 +20,7 @@ model User {
   school           String?
   city             String?
   state            String?   @db.Char(2)
+  passwordHash     String?   @map("password_hash") // senha local (bcrypt), null para usuários OAuth-only
   planType         String    @default("free") @map("plan_type") // free, basic, pro, school, secretaria
   creditsBalance   Int       @default(10) @map("credits_balance")
   stripeCustomerId String?   @map("stripe_customer_id")
@@ -30,6 +31,7 @@ model User {
   sessions           Session[]
   exams              Exam[]
   creditTransactions CreditTransaction[]
+  materialChunks     MaterialChunk[]
 
   @@map("users")
 }
@@ -233,6 +235,30 @@ model Plan {
   isActive            Boolean  @default(true) @map("is_active")
 
   @@map("plans")
+}
+
+// ─── Materiais RAG (base de conhecimento vetorizada) ─────────────────────────
+
+model MaterialChunk {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  content        String   // texto do chunk
+  sourceType     String   @map("source_type") // pdf, docx, txt, text
+  sourceFileName String?  @map("source_file_name")
+  descriptorCode String?  @map("descriptor_code") // "D07" (metadata para filtro)
+  subjectSlug    String?  @map("subject_slug")     // "matematica"
+  gradeLevelSlug String?  @map("grade_level_slug") // "9_ano"
+  evaluationSlug String?  @map("evaluation_slug")  // "spaece"
+  difficulty     String?  // facil, medio, dificil
+  chunkIndex     Int      @map("chunk_index")
+  totalChunks    Int      @map("total_chunks")
+  uploadedBy     String   @db.Uuid @map("uploaded_by")
+  // Embedding para busca semântica RAG (text-embedding-3-small = 1536 dims)
+  embedding      Unsupported("vector(1536)")?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  uploader User @relation(fields: [uploadedBy], references: [id])
+
+  @@map("material_chunks")
 }
 
 // ─── Banco de Questões com pgvector ──────────────────────────────────────────
