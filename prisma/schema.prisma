@@ -13,7 +13,7 @@ datasource db {
 model User {
   id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   email            String    @unique
-  name             String
+  name             String?
   emailVerified    DateTime?
   image            String?
   role             String    @default("teacher") // teacher, admin, coordinator
@@ -162,9 +162,12 @@ model Exam {
   evaluationId    Int       @map("evaluation_id")
   subjectId       Int       @map("subject_id")
   gradeLevelId    Int       @map("grade_level_id")
-  status          String    @default("draft") // draft, generating, completed, failed
+  status          String    @default("draft") // draft, generating, completed, failed, partial
   totalQuestions  Int       @default(0) @map("total_questions")
+  expectedQuestions Int     @default(0) @map("expected_questions")
   creditsConsumed Int       @default(0) @map("credits_consumed")
+  headerConfig    Json?     @map("header_config") // { mode: "standard"|"custom"|"none", imageUrl?, teacherName?, school?, discipline?, class?, examDate? }
+  difficulty      String?   // facil, medio, dificil, misto — dificuldade geral da prova
   pdfUrl          String?   @map("pdf_url")
   answerSheetUrl  String?   @map("answer_sheet_url")
   answerKeyUrl    String?   @map("answer_key_url")

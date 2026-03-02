@@ -2,6 +2,7 @@ import { auth } from "@/lib/utils/auth";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { generateExamPdf, generateAnswerKeyPdf } from "@/lib/pdf/generator";
+import type { HeaderConfig } from "@/types";
 
 // GET /api/simulados/pdf?examId=...&type=exam|answer_key
 export async function GET(request: NextRequest) {
@@ -36,9 +37,16 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Simulado não encontrado." }, { status: 404 });
   }
 
-  if (exam.status !== "completed") {
+  if (exam.status !== "completed" && exam.status !== "partial") {
     return NextResponse.json(
       { error: "O simulado ainda não foi gerado completamente." },
+      { status: 400 }
+    );
+  }
+
+  if (exam.questions.length === 0) {
+    return NextResponse.json(
+      { error: "O simulado não possui questões geradas." },
       { status: 400 }
     );
   }
@@ -50,6 +58,7 @@ export async function GET(request: NextRequest) {
     subject: exam.subject.name,
     gradeLevel: exam.gradeLevel.name,
     evaluation: exam.evaluation.name,
+    headerConfig: (exam.headerConfig as HeaderConfig | null) ?? null,
     questions: exam.questions.map((q) => ({
       number: q.questionNumber,
       stem: q.stem,

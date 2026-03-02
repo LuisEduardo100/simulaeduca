@@ -6,6 +6,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { ResumeGeneration } from "@/components/simulado/ResumeGeneration";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -14,8 +15,9 @@ interface PageProps {
 const STATUS_LABELS: Record<string, string> = {
   draft: "Rascunho",
   generating: "Gerando...",
-  completed: "Concluído",
+  completed: "Concluido",
   failed: "Falhou",
+  partial: "Parcial",
 };
 
 const STATUS_VARIANTS: Record<string, "secondary" | "default" | "destructive" | "outline"> = {
@@ -23,6 +25,7 @@ const STATUS_VARIANTS: Record<string, "secondary" | "default" | "destructive" | 
   generating: "outline",
   completed: "default",
   failed: "destructive",
+  partial: "outline",
 };
 
 export default async function SimuladoDetailPage({ params }: PageProps) {
@@ -54,7 +57,7 @@ export default async function SimuladoDetailPage({ params }: PageProps) {
 
   return (
     <main className="p-8 max-w-4xl mx-auto">
-      {/* Cabeçalho */}
+      {/* Cabecalho */}
       <div className="flex items-start justify-between mb-6">
         <div>
           <div className="flex items-center gap-3 mb-1">
@@ -69,17 +72,21 @@ export default async function SimuladoDetailPage({ params }: PageProps) {
             {exam.schoolName && ` · ${exam.schoolName}`}
           </p>
           <p className="text-muted-foreground text-xs mt-1">
-            {exam.questions.length} questão(ões) · {exam.creditsConsumed} crédito(s) consumido(s) ·{" "}
+            {exam.questions.length} questao(oes)
+            {exam.expectedQuestions > 0 && exam.status === "partial" && (
+              <> de {exam.expectedQuestions} esperadas</>
+            )}
+            {" "} · {exam.creditsConsumed} credito(s) consumido(s) ·{" "}
             {new Date(exam.createdAt).toLocaleDateString("pt-BR")}
           </p>
         </div>
         <Link href="/simulados/historico">
-          <Button variant="ghost" size="sm">← Histórico</Button>
+          <Button variant="ghost" size="sm">&larr; Historico</Button>
         </Link>
       </div>
 
-      {/* Botões de download PDF */}
-      {exam.status === "completed" && (
+      {/* Botoes de download PDF */}
+      {(exam.status === "completed" || (exam.status === "partial" && exam.questions.length > 0)) && (
         <div className="flex gap-3 mb-8">
           <a href={`/api/simulados/pdf?examId=${exam.id}&type=exam`} target="_blank">
             <Button>
@@ -97,26 +104,36 @@ export default async function SimuladoDetailPage({ params }: PageProps) {
       {exam.status === "generating" && (
         <Card className="p-6 mb-6 text-center">
           <p className="text-muted-foreground">
-            As questões estão sendo geradas pela IA. Aguarde alguns instantes e recarregue a página.
+            As questoes estao sendo geradas pela IA. Aguarde alguns instantes e recarregue a pagina.
           </p>
+        </Card>
+      )}
+
+      {exam.status === "partial" && (
+        <Card className="p-6 mb-6 border-amber-200 bg-amber-50">
+          <p className="text-amber-800 text-sm mb-3">
+            {exam.questions.length} de {exam.expectedQuestions} questoes foram geradas.
+            A geracao foi interrompida. Voce pode retomar de onde parou.
+          </p>
+          <ResumeGeneration examId={exam.id} />
         </Card>
       )}
 
       {exam.status === "failed" && (
         <Card className="p-6 mb-6 border-destructive">
           <p className="text-destructive text-sm">
-            Houve um erro na geração das questões. Tente criar um novo simulado.
+            Houve um erro na geracao das questoes. Tente criar um novo simulado.
           </p>
         </Card>
       )}
 
-      {/* Questões */}
+      {/* Questoes */}
       {exam.questions.length > 0 && (
         <div className="space-y-6">
           {exam.questions.map((q) => (
             <Card key={q.id} className="p-6">
               <div className="flex items-start justify-between mb-3">
-                <span className="font-bold text-sm">Questão {q.questionNumber}</span>
+                <span className="font-bold text-sm">Questao {q.questionNumber}</span>
                 <div className="flex gap-2">
                   <Badge variant="outline" className="text-xs font-mono">
                     {q.descriptor.code}
@@ -153,7 +170,7 @@ export default async function SimuladoDetailPage({ params }: PageProps) {
                 <>
                   <Separator className="my-4" />
                   <div className="text-xs text-muted-foreground">
-                    <span className="font-semibold">Resolução:</span> {q.justification}
+                    <span className="font-semibold">Resolucao:</span> {q.justification}
                   </div>
                 </>
               )}

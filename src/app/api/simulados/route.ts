@@ -42,12 +42,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
   }
 
-  const body = await request.json();
-  const { title, teacherName, schoolName, evaluationSlug, subjectSlug, gradeLevelSlug } = body;
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Body da requisição inválido." }, { status: 400 });
+  }
+  const { title, teacherName, schoolName, evaluationSlug, subjectSlug, gradeLevelSlug, headerConfig, difficulty } = body;
 
-  if (!title || !teacherName || !evaluationSlug || !subjectSlug || !gradeLevelSlug) {
+  if (!evaluationSlug || !subjectSlug || !gradeLevelSlug) {
     return NextResponse.json(
-      { error: "Campos obrigatórios: title, teacherName, evaluationSlug, subjectSlug, gradeLevelSlug." },
+      { error: "Campos obrigatórios: evaluationSlug, subjectSlug, gradeLevelSlug." },
       { status: 400 }
     );
   }
@@ -68,13 +73,15 @@ export async function POST(request: NextRequest) {
   const exam = await prisma.exam.create({
     data: {
       userId: session.user.id,
-      title,
-      teacherName,
+      title: title || `Simulado ${evaluation.name} — ${subject.name} — ${gradeLevel.name}`,
+      teacherName: teacherName || "Professor",
       schoolName: schoolName ?? null,
       evaluationId: evaluation.id,
       subjectId: subject.id,
       gradeLevelId: gradeLevel.id,
       status: "draft",
+      headerConfig: headerConfig ?? null,
+      difficulty: difficulty ?? null,
     },
   });
 

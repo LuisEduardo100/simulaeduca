@@ -18,6 +18,7 @@ declare module "next-auth" {
 }
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
+  trustHost: true,
   adapter: PrismaAdapter(prisma),
   // JWT é obrigatório para Credentials funcionar com PrismaAdapter no NextAuth v5
   session: { strategy: "jwt" },
@@ -98,6 +99,18 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         session.user.role = token.role ?? "teacher";
       }
       return session;
+    },
+  },
+  events: {
+    // Garante que o campo `name` (obrigatório no schema) seja preenchido
+    // caso o Google retorne null (ex.: conta sem nome configurado)
+    async createUser({ user }) {
+      if (!user.name || user.name.trim() === "") {
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { name: user.email?.split("@")[0] ?? "Usuário" },
+        });
+      }
     },
   },
   pages: {

@@ -23,6 +23,45 @@ const llm = new ChatOpenAI({
   temperature: 0.7,
 });
 
+const LETTERS: CorrectAnswer[] = ["A", "B", "C", "D"];
+
+/**
+ * Embaralha as alternativas de uma questão gerada para que a resposta correta
+ * não fique sempre na mesma posição (o LLM tende a colocar a correta em "A").
+ */
+function shuffleOptions(q: {
+  optionA: string;
+  optionB: string;
+  optionC: string;
+  optionD: string;
+  correctAnswer: CorrectAnswer;
+}): { optionA: string; optionB: string; optionC: string; optionD: string; correctAnswer: CorrectAnswer } {
+  const options = [
+    { letter: "A" as CorrectAnswer, text: q.optionA },
+    { letter: "B" as CorrectAnswer, text: q.optionB },
+    { letter: "C" as CorrectAnswer, text: q.optionC },
+    { letter: "D" as CorrectAnswer, text: q.optionD },
+  ];
+
+  // Fisher-Yates shuffle
+  for (let i = options.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [options[i], options[j]] = [options[j], options[i]];
+  }
+
+  // Encontrar a nova posição da resposta correta
+  const correctText = q[`option${q.correctAnswer}` as keyof typeof q] as string;
+  const newCorrectIndex = options.findIndex((o) => o.text === correctText);
+
+  return {
+    optionA: options[0].text,
+    optionB: options[1].text,
+    optionC: options[2].text,
+    optionD: options[3].text,
+    correctAnswer: LETTERS[newCorrectIndex],
+  };
+}
+
 export async function generateQuestion(
   input: QuestionGeneratorInput
 ): Promise<GeneratedQuestion> {
@@ -36,15 +75,20 @@ export async function generateQuestion(
     subject,
   } = input;
 
-  // Buscar chunks relevantes no pgvector
+  // Buscar chunks relevantes no pgvector (fallback para [] se RAG falhar)
   const query = `${descriptorCode} ${descriptorDescription}`;
-  const relevantChunks = await retrieveRelevantChunks(query, {
-    descriptorCode,
-    subjectSlug,
-    gradeLevelSlug,
-    evaluationSlug,
-    topK: 5,
-  });
+  let relevantChunks: Awaited<ReturnType<typeof retrieveRelevantChunks>> = [];
+  try {
+    relevantChunks = await retrieveRelevantChunks(query, {
+      descriptorCode,
+      subjectSlug,
+      gradeLevelSlug,
+      evaluationSlug,
+      topK: 5,
+    });
+  } catch (err) {
+    console.warn(`[question-generator] RAG retrieval falhou para ${descriptorCode}, continuando sem contexto:`, err instanceof Error ? err.message : err);
+  }
 
   const prompt = buildQuestionGenerationPrompt({
     descriptorCode,
@@ -53,6 +97,10 @@ export async function generateQuestion(
     subject,
     relevantChunks,
   });
+
+  if (!process.env.OPENAI_API_KEY) {
+    throw new Error("OPENAI_API_KEY não está configurada. Configure a variável de ambiente.");
+  }
 
   // Tentar até 3 vezes em caso de JSON inválido
   for (let attempt = 1; attempt <= 3; attempt++) {
@@ -74,13 +122,18 @@ export async function generateQuestion(
         validAnswers.includes(parsed.correctAnswer) &&
         typeof parsed.justification === "string"
       ) {
-        return {
-          stem: parsed.stem,
+        // Embaralhar alternativas para distribuir o gabarito aleatoriamente
+        const shuffled = shuffleOptions({
           optionA: parsed.optionA,
           optionB: parsed.optionB,
           optionC: parsed.optionC,
           optionD: parsed.optionD,
           correctAnswer: parsed.correctAnswer as CorrectAnswer,
+        });
+
+        return {
+          stem: parsed.stem,
+          ...shuffled,
           justification: parsed.justification,
           difficulty: (parsed.difficulty ?? "medio") as Difficulty,
           descriptorCode,
