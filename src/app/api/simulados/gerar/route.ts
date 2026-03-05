@@ -18,7 +18,7 @@ interface DescriptorRequest {
 
 interface GenerarRequest {
   examId: string;
-  descriptors: DescriptorRequest[];
+  descriptors?: DescriptorRequest[];
   difficulty?: Difficulty | "misto";
   resume?: boolean; // se true, continua de onde parou
 }
@@ -37,11 +37,12 @@ export async function POST(request: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Body da requisição inválido." }, { status: 400 });
   }
-  const { examId, descriptors, difficulty: globalDifficulty, resume } = body;
+  const { examId, difficulty: globalDifficulty, resume } = body;
+  let { descriptors } = body;
 
-  if (!examId || !Array.isArray(descriptors) || descriptors.length === 0) {
+  if (!examId) {
     return NextResponse.json(
-      { error: "examId e ao menos um descritor são obrigatórios." },
+      { error: "examId é obrigatório." },
       { status: 400 }
     );
   }
@@ -61,6 +62,29 @@ export async function POST(request: NextRequest) {
 
   if (!exam || exam.userId !== userId) {
     return NextResponse.json({ error: "Simulado não encontrado." }, { status: 404 });
+  }
+
+  // Garantir narrowing para closures internas
+  const validExam = exam;
+
+  // Se é retomada, recuperar descritores salvos no exam
+  if (resume && (!descriptors || descriptors.length === 0)) {
+    const saved = exam.descriptorDistribution as DescriptorRequest[] | null;
+    if (saved && Array.isArray(saved) && saved.length > 0) {
+      descriptors = saved;
+    } else {
+      return NextResponse.json(
+        { error: "Não foi possível retomar: distribuição de descritores não encontrada." },
+        { status: 400 }
+      );
+    }
+  }
+
+  if (!descriptors || descriptors.length === 0) {
+    return NextResponse.json(
+      { error: "Ao menos um descritor é obrigatório." },
+      { status: 400 }
+    );
   }
 
   // Calcular total de questões esperadas a partir da distribuição
@@ -88,12 +112,13 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Atualizar status para "generating" e salvar expectedQuestions
+  // Atualizar status para "generating", salvar expectedQuestions e distribuição
   await prisma.exam.update({
     where: { id: examId },
     data: {
       status: "generating",
       expectedQuestions: totalExpected,
+      descriptorDistribution: descriptors as unknown as import("@prisma/client").Prisma.InputJsonValue,
     },
   });
 
@@ -123,117 +148,153 @@ export async function POST(request: NextRequest) {
   let generatedCount = alreadyGenerated;
   let totalCreditsDeducted = 0;
 
+  // Pré-buscar todos os descritores em batch (evita N queries no loop)
+  const uniqueDescriptorIds = [...new Set(questionPlan.map((q) => q.descriptorId))];
+  const descriptorsData = await prisma.descriptor.findMany({
+    where: { id: { in: uniqueDescriptorIds } },
+  });
+  const descriptorMap = new Map(descriptorsData.map((d) => [d.id, d]));
+
+  // Verificar se todos os descritores existem
+  for (const id of uniqueDescriptorIds) {
+    if (!descriptorMap.has(id)) {
+      return NextResponse.json(
+        { error: `Descritor ID ${id} não encontrado.` },
+        { status: 400 }
+      );
+    }
+  }
+
+  // Função para gerar uma única questão com retries e validação
+  async function generateSingleQuestion(
+    planItem: { descriptorId: number; difficulty: Difficulty },
+    questionIndex: number
+  ): Promise<{ question: GeneratedQuestion; descriptorId: number; questionNumber: number } | null> {
+    const descriptor = descriptorMap.get(planItem.descriptorId)!;
+    const MAX_ATTEMPTS = 4;
+    let question: GeneratedQuestion | null = null;
+    let bestFallback: GeneratedQuestion | null = null;
+
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      let generated: GeneratedQuestion;
+      try {
+        generated = await generateQuestion({
+          descriptorId: planItem.descriptorId,
+          descriptorCode: descriptor.code,
+          descriptorDescription: descriptor.description,
+          gradeLevelSlug: validExam.gradeLevel.slug,
+          subjectSlug: validExam.subject.slug,
+          evaluationSlug: validExam.evaluation.slug,
+          gradeLevel: validExam.gradeLevel.name,
+          subject: validExam.subject.name,
+          difficulty: planItem.difficulty,
+        });
+      } catch {
+        continue;
+      }
+
+      if (!bestFallback) bestFallback = generated;
+
+      const validation = await validateQuestion(
+        generated,
+        descriptor.code,
+        descriptor.description
+      );
+
+      if (validation.isValid) {
+        question = generated;
+        break;
+      }
+    }
+
+    if (!question && bestFallback) {
+      question = bestFallback;
+    }
+
+    if (!question) return null;
+
+    return { question, descriptorId: planItem.descriptorId, questionNumber: questionIndex + 1 };
+  }
+
+  const BATCH_SIZE = 5;
+  const remainingPlan = questionPlan.slice(startIndex);
+
   try {
-    for (let i = startIndex; i < questionPlan.length; i++) {
-      const { descriptorId, difficulty } = questionPlan[i];
+    for (let batchStart = 0; batchStart < remainingPlan.length; batchStart += BATCH_SIZE) {
+      const batch = remainingPlan.slice(batchStart, batchStart + BATCH_SIZE);
+      const batchPromises = batch.map((item, idx) =>
+        generateSingleQuestion(item, startIndex + batchStart + idx)
+      );
 
-      const descriptor = await prisma.descriptor.findUnique({
-        where: { id: descriptorId },
-      });
+      const results = await Promise.allSettled(batchPromises);
 
-      if (!descriptor) {
-        throw new Error(`Descritor ID ${descriptorId} não encontrado.`);
-      }
+      // Processar resultados do batch sequencialmente (persistir, créditos)
+      let batchFailed = false;
+      for (let j = 0; j < results.length; j++) {
+        const result = results[j];
+        const globalIdx = startIndex + batchStart + j;
 
-      // 4 tentativas com fallback inteligente
-      const MAX_ATTEMPTS = 4;
-      let question: GeneratedQuestion | null = null;
-      let bestFallback: GeneratedQuestion | null = null;
-
-      for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-        let generated: GeneratedQuestion;
-        try {
-          generated = await generateQuestion({
-            descriptorId,
-            descriptorCode: descriptor.code,
-            descriptorDescription: descriptor.description,
-            gradeLevelSlug: exam.gradeLevel.slug,
-            subjectSlug: exam.subject.slug,
-            evaluationSlug: exam.evaluation.slug,
-            gradeLevel: exam.gradeLevel.name,
-            subject: exam.subject.name,
-            difficulty,
+        if (result.status === "rejected" || !result.value) {
+          // Questão falhou — marcar como partial e parar
+          batchFailed = true;
+          await prisma.exam.update({
+            where: { id: examId },
+            data: { status: "partial", totalQuestions: generatedCount },
           });
-        } catch {
-          continue;
+
+          return NextResponse.json({
+            success: false,
+            examId,
+            questionsGenerated: generatedCount,
+            totalExpected,
+            error: `Falha ao gerar questão ${globalIdx + 1}. ${generatedCount} questão(ões) foram salvas.`,
+          }, { status: 207 });
         }
 
-        if (!bestFallback) bestFallback = generated;
+        const { question, descriptorId, questionNumber } = result.value;
 
-        const validation = await validateQuestion(
-          generated,
-          descriptor.code,
-          descriptor.description
-        );
-
-        if (validation.isValid) {
-          question = generated;
-          break;
-        }
-      }
-
-      if (!question && bestFallback) {
-        question = bestFallback;
-      }
-
-      if (!question) {
-        // Marcar como partial — salvar o que já temos
-        await prisma.exam.update({
-          where: { id: examId },
+        // Persistir questão
+        await prisma.examQuestion.create({
           data: {
-            status: "partial",
-            totalQuestions: generatedCount,
+            examId,
+            questionNumber,
+            descriptorId,
+            stem: question.stem,
+            optionA: question.optionA,
+            optionB: question.optionB,
+            optionC: question.optionC,
+            optionD: question.optionD,
+            correctAnswer: question.correctAnswer,
+            justification: question.justification,
+            difficulty: question.difficulty,
+            generationModel: "gpt-4o-mini",
           },
         });
 
-        return NextResponse.json({
-          success: false,
+        // Deduzir crédito
+        await deductCredits(
+          userId,
+          1,
           examId,
-          questionsGenerated: generatedCount,
-          totalExpected,
-          error: `Falha ao gerar questão ${i + 1} para descritor ${descriptorId}. ${generatedCount} questão(ões) foram salvas.`,
-        }, { status: 207 }); // 207 Multi-Status
+          `Questão ${questionNumber} de ${totalExpected} — simulado ${examId.slice(0, 8)}`
+        );
+        totalCreditsDeducted++;
+        generatedCount++;
+
+        // Atualizar progresso do exam imediatamente por questão
+        await prisma.exam.update({
+          where: { id: examId },
+          data: {
+            totalQuestions: generatedCount,
+            creditsConsumed: { increment: 1 },
+          },
+        });
+
+        // Salvar no banco de questões (não bloquear)
+        saveToQuestionBank(question, descriptorId).catch(() => {});
       }
 
-      // Persistir questão imediatamente
-      await prisma.examQuestion.create({
-        data: {
-          examId,
-          questionNumber: i + 1,
-          descriptorId,
-          stem: question.stem,
-          optionA: question.optionA,
-          optionB: question.optionB,
-          optionC: question.optionC,
-          optionD: question.optionD,
-          correctAnswer: question.correctAnswer,
-          justification: question.justification,
-          difficulty: question.difficulty,
-          generationModel: "gpt-4o",
-        },
-      });
-
-      // Deduzir 1 crédito imediatamente por questão
-      await deductCredits(
-        userId,
-        1,
-        examId,
-        `Questão ${i + 1} de ${totalExpected} — simulado ${examId.slice(0, 8)}`
-      );
-      totalCreditsDeducted++;
-
-      // Atualizar contagem no exam
-      generatedCount++;
-      await prisma.exam.update({
-        where: { id: examId },
-        data: {
-          totalQuestions: generatedCount,
-          creditsConsumed: { increment: 1 },
-        },
-      });
-
-      // Salvar no banco de questões para reutilização futura (não bloquear)
-      saveToQuestionBank(question, descriptorId).catch(() => {});
+      if (batchFailed) break;
     }
 
     // Todas as questões geradas com sucesso

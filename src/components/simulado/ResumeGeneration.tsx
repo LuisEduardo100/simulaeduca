@@ -18,28 +18,11 @@ export function ResumeGeneration({ examId }: ResumeGenerationProps) {
     setError(null);
 
     try {
-      // Fetch the exam progress to get the descriptor distribution
-      const progressRes = await fetch(`/api/simulados/${examId}/progresso`);
-      if (!progressRes.ok) throw new Error("Erro ao buscar progresso.");
-      let progress;
-      try {
-        progress = await progressRes.json();
-      } catch {
-        throw new Error("Resposta inesperada do servidor.");
-      }
-
-      // We need to reconstruct the descriptor distribution from the exam
-      // The resume endpoint handles continuation automatically
       const res = await fetch("/api/simulados/gerar", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           examId,
-          // The backend will read the existing questions and continue
-          // We pass a minimal descriptor list — the backend handles resume logic
-          descriptors: progress.questions.length > 0
-            ? [{ descriptorId: 1, questionCount: progress.totalExpected }]
-            : [],
           resume: true,
         }),
       });

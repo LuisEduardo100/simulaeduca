@@ -96,18 +96,20 @@ export function MobileNav({ userEmail, userName, userRole }: MobileNavProps) {
           {navItems.map((item) => {
             const Icon = item.icon;
             return (
-              <Link key={item.href} href={item.href} onClick={() => setOpen(false)}>
-                <Button
-                  variant={isActive(item.href) ? "secondary" : "ghost"}
-                  className={cn(
-                    "w-full justify-start text-sm gap-2",
-                    isActive(item.href) && "font-medium"
-                  )}
-                >
+              <Button
+                key={item.href}
+                variant={isActive(item.href) ? "secondary" : "ghost"}
+                className={cn(
+                  "w-full justify-start text-sm gap-2",
+                  isActive(item.href) && "font-medium"
+                )}
+                asChild
+              >
+                <Link href={item.href} onClick={() => setOpen(false)}>
                   <Icon className="h-4 w-4 shrink-0" />
                   {item.label}
-                </Button>
-              </Link>
+                </Link>
+              </Button>
             );
           })}
 
@@ -120,18 +122,20 @@ export function MobileNav({ userEmail, userName, userRole }: MobileNavProps) {
               {adminItems.map((item) => {
                 const Icon = item.icon;
                 return (
-                  <Link key={item.href} href={item.href} onClick={() => setOpen(false)}>
-                    <Button
-                      variant={isActive(item.href) ? "secondary" : "ghost"}
-                      className={cn(
-                        "w-full justify-start text-sm gap-2",
-                        isActive(item.href) && "font-medium"
-                      )}
-                    >
+                  <Button
+                    key={item.href}
+                    variant={isActive(item.href) ? "secondary" : "ghost"}
+                    className={cn(
+                      "w-full justify-start text-sm gap-2",
+                      isActive(item.href) && "font-medium"
+                    )}
+                    asChild
+                  >
+                    <Link href={item.href} onClick={() => setOpen(false)}>
                       <Icon className="h-4 w-4 shrink-0" />
                       {item.label}
-                    </Button>
-                  </Link>
+                    </Link>
+                  </Button>
                 );
               })}
             </>

@@ -54,9 +54,6 @@ const styles = StyleSheet.create({
     fontSize: 9,
   },
   infoBox: {
-    borderBottomWidth: 0.5,
-    borderBottomColor: "#000",
-    borderBottomStyle: "solid",
     paddingBottom: 2,
   },
   customHeaderImage: {
@@ -314,13 +311,17 @@ function QuestionBlock(q: ExamPdfData["questions"][number], twoCol: boolean) {
   return ce(
     View,
     { key: String(q.number), style: s.block, wrap: false },
-    ce(Text, { style: s.num }, `Questão ${q.number}`),
+    ce(
+      View,
+      { style: { flexDirection: "row" as const, justifyContent: "space-between" as const, marginBottom: 3 } },
+      ce(Text, { style: s.num }, `Questão ${q.number}`),
+      ce(Text, { style: s.tag }, `Descritor: ${q.descriptorCode}`)
+    ),
     ce(Text, s.stem ? { style: s.stem } : null, q.stem),
     ce(Text, { style: s.opt }, `A) ${q.optionA}`),
     ce(Text, { style: s.opt }, `B) ${q.optionB}`),
     ce(Text, { style: s.opt }, `C) ${q.optionC}`),
-    ce(Text, { style: s.opt }, `D) ${q.optionD}`),
-    ce(Text, { style: s.tag }, `Descritor: ${q.descriptorCode}`)
+    ce(Text, { style: s.opt }, `D) ${q.optionD}`)
   );
 }
 

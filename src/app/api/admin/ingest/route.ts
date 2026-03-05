@@ -2,6 +2,8 @@ import { auth } from "@/lib/utils/auth";
 import { NextRequest, NextResponse } from "next/server";
 import { ingestMaterial, deleteMaterialBySource, listMaterials } from "@/lib/ai/rag/ingest";
 import { extractFromPdf, extractFromDocx, extractFromTxt, detectMimeType } from "@/lib/ai/rag/extractors";
+import { writeFile, mkdir } from "fs/promises";
+import path from "path";
 
 // GET /api/admin/ingest — listar materiais ingeridos
 export async function GET() {
@@ -48,6 +50,18 @@ export async function POST(request: NextRequest) {
     sourceFileName = file.name;
     sourceType = detectMimeType(file.name);
     const buffer = Buffer.from(await file.arrayBuffer());
+
+    // Salvar arquivo original localmente para base de provas reais
+    try {
+      const storageDir = path.join(process.cwd(), "storage", "materiais-originais");
+      await mkdir(storageDir, { recursive: true });
+      const timestamp = Date.now();
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const filePath = path.join(storageDir, `${timestamp}_${safeName}`);
+      await writeFile(filePath, buffer);
+    } catch (err) {
+      console.warn("[ingest] Falha ao salvar arquivo localmente:", err);
+    }
 
     try {
       if (sourceType === "pdf") {

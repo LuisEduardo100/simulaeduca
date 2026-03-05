@@ -1,0 +1,511 @@
+# 🏗️ Arquitetura Completa — SimulaEduca
+
+Plataforma SaaS educacional que gera **simulados (provas)** com IA para avaliações SPAECE/SAEB, voltada para professores do ensino fundamental e médio.
+
+---
+
+## Stack Tecnológico
+
+| Camada | Tecnologia |
+|---|---|
+| **Framework** | Next.js 16 (App Router, React 19, TypeScript) |
+| **Banco de Dados** | PostgreSQL 16 + pgvector (Docker) |
+| **ORM** | Prisma 7 (driver adapter `@prisma/adapter-pg`) |
+| **Autenticação** | NextAuth v5 (Auth.js) — Google OAuth + Credentials |
+| **IA / LLM** | LangChain + OpenAI (gpt-4o para geração, gpt-4o-mini para validação) |
+| **Embeddings RAG** | OpenAI `text-embedding-3-small` (1536 dims) + pgvector |
+| **PDF** | `@react-pdf/renderer` (geração server-side) |
+| **UI** | Tailwind CSS 4 + shadcn/ui + Lucide icons |
+| **Forms** | React Hook Form + Zod |
+| **Estado** | Zustand (disponível, pouco usado ainda) |
+| **Cache** | Redis 7 (Docker, configurado mas ainda sem uso ativo) |
+| **Pagamentos** | Stripe (stubs preparados para Semana 7) |
+
+---
+
+## Diagrama Geral de Arquitetura
+
+```mermaid
+graph TB
+  subgraph "Frontend (React 19)"
+    LP["Landing Page /"]
+    AUTH["Auth Pages /login /register"]
+    DASH["Dashboard /dashboard"]
+    NOVO["Criar Simulado /simulados/novo"]
+    DET["Detalhe /simulados/:id"]
+    HIST["Histórico /simulados/historico"]
+    CRED["Créditos /creditos"]
+    CONF["Configurações /configuracoes"]
+    ADMIN_KB["Admin: Knowledge Base"]
+    ADMIN_SC["Admin: Scraping"]
+  end
+
+  subgraph "API Routes (Next.js)"
+    API_AUTH["/api/auth/[...nextauth]"]
+    API_REG["/api/auth/register"]
+    API_RESET["/api/auth/reset-password"]
+    API_SIM["/api/simulados"]
+    API_GER["/api/simulados/gerar"]
+    API_PDF["/api/simulados/pdf"]
+    API_DESC["/api/descritores"]
+    API_CRED["/api/creditos"]
+    API_PROF["/api/user/profile"]
+    API_ING["/api/admin/ingest"]
+    API_SCR["/api/admin/scrape"]
+    API_STRIPE["/api/webhooks/stripe"]
+  end
+
+  subgraph "Backend Modules (src/lib)"
+    AUTH_MOD["Auth Module"]
+    AI_GEN["Question Generator"]
+    AI_VAL["Question Validator"]
+    RAG["RAG Pipeline"]
+    BILL["Billing / Credits"]
+    PDF_GEN["PDF Generator"]
+  end
+
+  subgraph "Data Layer"
+    PG["PostgreSQL 16 + pgvector"]
+    REDIS["Redis 7"]
+  end
+
+  subgraph "External Services"
+    OPENAI["OpenAI API"]
+    GOOGLE["Google OAuth"]
+    STRIPE_EXT["Stripe"]
+  end
+
+  LP --> API_AUTH
+  AUTH --> API_AUTH
+  AUTH --> API_REG
+  NOVO --> API_SIM
+  NOVO --> API_GER
+  DET --> API_PDF
+  CRED --> API_CRED
+  CONF --> API_PROF
+  ADMIN_KB --> API_ING
+
+  API_AUTH --> AUTH_MOD
+  API_GER --> AI_GEN
+  API_GER --> AI_VAL
+  API_GER --> BILL
+  API_ING --> RAG
+  API_PDF --> PDF_GEN
+
+  AUTH_MOD --> PG
+  AUTH_MOD --> GOOGLE
+  AI_GEN --> OPENAI
+  AI_GEN --> RAG
+  AI_VAL --> OPENAI
+  RAG --> PG
+  RAG --> OPENAI
+  BILL --> PG
+  PDF_GEN --> PG
+```
+
+---
+
+## Modelo de Dados (12 modelos Prisma)
+
+```mermaid
+erDiagram
+  User ||--o{ Account : "OAuth accounts"
+  User ||--o{ Session : sessions
+  User ||--o{ Exam : "cria simulados"
+  User ||--o{ CreditTransaction : "transações de crédito"
+  User ||--o{ MaterialChunk : "uploads RAG"
+
+  Subject ||--o{ Theme : temas
+  Subject ||--o{ Descriptor : descritores
+  Subject ||--o{ Exam : simulados
+  GradeLevel ||--o{ Theme : temas
+  GradeLevel ||--o{ Descriptor : descritores
+  GradeLevel ||--o{ Exam : simulados
+  Evaluation ||--o{ Theme : temas
+  Evaluation ||--o{ Descriptor : descritores
+  Evaluation ||--o{ Exam : simulados
+
+  Theme ||--o{ Descriptor : descritores
+  Descriptor ||--o{ ExamQuestion : questões
+  Descriptor ||--o{ QuestionBank : banco
+
+  Exam ||--o{ ExamQuestion : questões
+  Exam ||--o{ CreditTransaction : cobranças
+
+  User {
+    uuid id PK
+    string email UK
+    string name
+    string role "teacher/admin/coordinator"
+    string planType "free/basic/pro/school/secretaria"
+    int creditsBalance "default 10"
+    string passwordHash "bcrypt (null = OAuth-only)"
+  }
+
+  Exam {
+    uuid id PK
+    uuid userId FK
+    string title
+    string status "draft/generating/completed/failed"
+    int totalQuestions
+    int creditsConsumed
+  }
+
+  ExamQuestion {
+    uuid id PK
+    uuid examId FK
+    int questionNumber
+    int descriptorId FK
+    string stem "enunciado"
+    string optionA
+    string optionB
+    string optionC
+    string optionD
+    char correctAnswer "A/B/C/D"
+    string justification
+    string difficulty "facil/medio/dificil"
+  }
+
+  Descriptor {
+    int id PK
+    string code "D07, D08..."
+    string description
+    int themeId FK
+    int evaluationId FK
+    int subjectId FK
+    int gradeLevelId FK
+  }
+
+  QuestionBank {
+    uuid id PK
+    int descriptorId FK
+    string stem
+    vector embedding "1536 dims"
+    decimal qualityScore
+    int timesUsed
+  }
+
+  MaterialChunk {
+    uuid id PK
+    string content
+    string sourceType "pdf/docx/txt/text"
+    vector embedding "1536 dims"
+    string descriptorCode
+  }
+```
+
+---
+
+## Fluxos Principais
+
+### 1. 🔐 Autenticação
+
+```mermaid
+sequenceDiagram
+  actor U as Usuário
+  participant FE as Frontend
+  participant MW as Middleware
+  participant AUTH as NextAuth v5
+  participant DB as PostgreSQL
+
+  U->>FE: Acessar /login
+  alt Google OAuth
+    FE->>AUTH: signIn("google")
+    AUTH->>AUTH: Redirect Google
+    AUTH->>DB: PrismaAdapter cria/busca User+Account
+    AUTH->>FE: JWT Token (session)
+  else Credentials (email/senha)
+    FE->>AUTH: signIn("credentials", {email, password})
+    AUTH->>DB: findUnique(email)
+    AUTH->>AUTH: bcrypt.compare(password, hash)
+    AUTH->>FE: JWT Token (role incluído)
+  end
+  FE->>MW: Acessar rota protegida
+  MW->>MW: Verifica JWT (session.user.role)
+  alt Não autenticado
+    MW->>FE: Redirect /login
+  else É rota admin e role ≠ admin
+    MW->>FE: Redirect /dashboard
+  end
+```
+
+**Pontos-chave:**
+- Sessão via **JWT** (obrigatório com Credentials + PrismaAdapter)
+- O `role` do usuário é injetado no token via callbacks [jwt](file:///c:/Users/luis.albuquerque/Desktop/simulados/simulaeduca/src/lib/utils/auth.ts#71-95) → [session](file:///c:/Users/luis.albuquerque/Desktop/simulados/simulaeduca/src/lib/utils/auth.ts#95-103)
+- Middleware protege rotas: `/dashboard/*`, `/simulados/*`, `/creditos/*`, `/configuracoes/*`, `/admin/*`
+
+---
+
+### 2. 📝 Geração de Simulado (Fluxo Principal)
+
+```mermaid
+sequenceDiagram
+  actor P as Professor
+  participant FE as SimuladoForm
+  participant API1 as POST /api/simulados
+  participant API2 as POST /api/simulados/gerar
+  participant CRED as Credits Module
+  participant GEN as Question Generator
+  participant RAG as RAG Retriever
+  participant LLM as OpenAI GPT-4o
+  participant VAL as Question Validator
+  participant LLM2 as GPT-4o-mini
+  participant DB as PostgreSQL
+
+  P->>FE: Preenche formulário + seleciona descritores
+  FE->>API1: POST {title, teacher, evaluation, subject, grade}
+  API1->>DB: Exam.create(status: "draft")
+  API1-->>FE: {examId}
+
+  FE->>API2: POST {examId, descriptors[{id, difficulty}]}
+  API2->>CRED: hasEnoughCredits(userId, N)
+  CRED->>DB: User.creditsBalance ≥ N?
+
+  loop Para cada descritor (1-30 questões)
+    loop Até 4 tentativas
+      API2->>GEN: generateQuestion(input)
+      GEN->>RAG: retrieveRelevantChunks(query)
+      RAG->>DB: SELECT ... WHERE embedding <=> vector ORDER BY similarity LIMIT 5
+      RAG-->>GEN: chunks contextuais
+      GEN->>GEN: buildQuestionGenerationPrompt()
+      GEN->>LLM: Enviar prompt (até 3 retries internos)
+      LLM-->>GEN: JSON {stem, options, answer, justification}
+
+      GEN-->>API2: GeneratedQuestion
+      API2->>VAL: validateQuestion(question, descriptor)
+      VAL->>VAL: validateStructure() — checks locais
+      VAL->>LLM2: buildValidationPrompt() — validação semântica
+      LLM2-->>VAL: {isValid, errors}
+
+      alt isValid = true
+        Note over API2: Aceitar questão ✓
+      else Falhou mas tem fallback
+        Note over API2: Usar bestFallback
+      end
+    end
+
+    API2->>DB: ExamQuestion.create()
+    API2->>DB: QuestionBank insert (reutilização futura)
+  end
+
+  API2->>CRED: deductCredits(userId, N, examId)
+  CRED->>DB: Transaction: User.decrement + CreditTransaction.create
+  API2->>DB: Exam.update(status: "completed")
+  API2-->>FE: {success, questionsGenerated}
+  FE->>FE: router.push(/simulados/{examId})
+```
+
+**Pontos-chave:**
+- **1 crédito = 1 questão gerada**
+- Cada questão passa por **até 4 tentativas** de geração (com **3 retries internos** no generator para JSON malformado)
+- Se o validator LLM rejeitar todas, usa o `bestFallback` (primeira questão estruturalmente válida)
+- Questões são salvas no `question_bank` para reutilização futura
+
+---
+
+### 3. 📄 Geração de PDF
+
+```mermaid
+sequenceDiagram
+  actor P as Professor
+  participant FE as Detalhe do Simulado
+  participant API as GET /api/simulados/pdf
+  participant PDF as PDF Generator
+  participant DB as PostgreSQL
+
+  P->>FE: Clica "Baixar Prova" ou "Baixar Gabarito"
+  FE->>API: GET ?examId=...&type=exam|answer_key
+  API->>DB: Exam + Questions + Descriptors
+  API->>PDF: generateExamPdf(data) ou generateAnswerKeyPdf(data)
+  PDF->>PDF: React-PDF renderToBuffer (layout A4)
+  PDF-->>API: Buffer PDF
+  API-->>FE: Response (application/pdf, attachment)
+```
+
+Gera dois documentos distintos:
+- **Prova**: cabeçalho (escola, turma, data) + questões com alternativas
+- **Gabarito**: grid de respostas + resoluções por questão
+
+---
+
+### 4. 📚 Pipeline RAG (Ingestão de Materiais)
+
+```mermaid
+sequenceDiagram
+  actor A as Admin
+  participant FE as Knowledge Base
+  participant API as POST /api/admin/ingest
+  participant EXT as Extractors
+  participant SPL as Text Splitter
+  participant EMB as OpenAI Embeddings
+  participant DB as PostgreSQL
+
+  A->>FE: Upload arquivo (PDF/DOCX/TXT) + metadados
+  FE->>API: FormData {file, descriptorCode, subject, grade}
+  API->>EXT: extractFromPdf/Docx/Txt(buffer)
+  EXT-->>API: texto extraído
+  API->>SPL: RecursiveCharacterTextSplitter(1000 chars, 100 overlap)
+  SPL-->>API: chunks[]
+  API->>EMB: generateEmbeddings(chunks) — batch
+  EMB-->>API: vectors[] (1536 dims cada)
+
+  loop Para cada chunk
+    API->>DB: INSERT material_chunks (content, embedding::vector, metadata)
+  end
+
+  API-->>FE: {chunksCreated: N}
+```
+
+---
+
+## Estrutura de Diretórios
+
+```
+simulaeduca/
+├── docker-compose.yml          # PostgreSQL 16 + pgvector + Redis
+├── prisma/
+│   ├── schema.prisma           # 12 modelos (auth + domínio + billing + RAG)
+│   └── seed/                   # Dados iniciais (descritores SPAECE/SAEB)
+│
+├── src/
+│   ├── middleware.ts            # Proteção de rotas (JWT + role-based)
+│   ├── types/index.ts           # Tipos globais TypeScript
+│   │
+│   ├── app/
+│   │   ├── layout.tsx / page.tsx / globals.css
+│   │   │
+│   │   ├── (auth)/              # Grupo público (sem sidebar)
+│   │   │   ├── login/           # Google OAuth + email/senha
+│   │   │   ├── register/        # Cadastro + auto-login
+│   │   │   └── redefinir-senha/
+│   │   │
+│   │   ├── (dashboard)/         # Grupo protegido (com sidebar)
+│   │   │   ├── layout.tsx       # Sidebar + MobileNav wrapper
+│   │   │   ├── dashboard/       # Cards: créditos, total simulados, recentes
+│   │   │   ├── simulados/
+│   │   │   │   ├── novo/        # Formulário de criação → SimuladoForm
+│   │   │   │   ├── [id]/        # Detalhe com questões + download PDF
+│   │   │   │   └── historico/   # Lista paginada
+│   │   │   ├── creditos/        # Saldo + histórico de transações
+│   │   │   ├── configuracoes/   # Edição de perfil
+│   │   │   └── admin/
+│   │   │       ├── knowledge-base/ # Upload de materiais RAG
+│   │   │       └── scraping/       # Web scraping (stub)
+│   │   │
+│   │   └── api/
+│   │       ├── auth/
+│   │       │   ├── [...nextauth]/ # NextAuth handlers
+│   │       │   ├── register/      # POST — Zod + bcrypt
+│   │       │   └── reset-password/
+│   │       ├── simulados/
+│   │       │   ├── route.ts       # GET (listar) + POST (criar draft)
+│   │       │   ├── gerar/route.ts # POST — pipeline IA completo
+│   │       │   └── pdf/route.ts   # GET — gera PDF em tempo real
+│   │       ├── descritores/       # GET — filtra por avaliação/disciplina/série
+│   │       ├── creditos/          # GET — saldo + histórico
+│   │       ├── user/profile/      # GET + PATCH — perfil do usuário
+│   │       ├── admin/ingest/      # GET + POST + DELETE — RAG
+│   │       ├── admin/scrape/      # Web scraping (stub)
+│   │       └── webhooks/stripe/   # Webhook Stripe (stub)
+│   │
+│   ├── lib/
+│   │   ├── db/prisma.ts          # Singleton PrismaClient (pg Pool adapter)
+│   │   ├── utils/
+│   │   │   ├── auth.ts           # NextAuth config (providers, callbacks, events)
+│   │   │   ├── auth.config.ts    # Config mínima para middleware (edge)
+│   │   │   └── constants.ts
+│   │   ├── ai/
+│   │   │   ├── agents/
+│   │   │   │   ├── question-generator.ts  # GPT-4o + RAG → questão
+│   │   │   │   ├── question-validator.ts  # Estrutural + semântico (GPT-4o-mini)
+│   │   │   │   └── exam-formatter.ts
+│   │   │   └── rag/
+│   │   │       ├── embeddings.ts   # text-embedding-3-small
+│   │   │       ├── extractors.ts   # PDF, DOCX, TXT → texto
+│   │   │       ├── ingest.ts       # Split + embed + insert pgvector
+│   │   │       ├── retriever.ts    # Busca por similaridade cosseno
+│   │   │       └── prompts.ts      # Prompts de geração e validação
+│   │   ├── billing/
+│   │   │   ├── credits.ts         # get/has/deduct/addCredits (Prisma transactions)
+│   │   │   ├── plans.ts           # Stub (Semana 7)
+│   │   │   └── stripe.ts          # Stub (Semana 7)
+│   │   └── pdf/generator.ts       # react-pdf: ExamPDF + AnswerKeyPDF
+│   │
+│   └── components/
+│       ├── ui/                    # 11 componentes shadcn/ui
+│       ├── layout/
+│       │   ├── Sidebar.tsx        # Nav principal + seção admin condicional
+│       │   └── MobileNav.tsx      # Menu hambúrguer responsivo
+│       └── simulado/
+│           ├── SimuladoForm.tsx    # Formulário completo + API calls
+│           ├── DescriptorSelect.tsx # Select dinâmico de descritores
+│           ├── ExamPreview.tsx
+│           ├── QuestionItem.tsx
+│           └── PdfViewer.tsx
+```
+
+---
+
+## Tabela de API Routes
+
+| Método | Rota | Auth | Role | Descrição |
+|--------|------|------|------|-----------|
+| `ALL` | `/api/auth/[...nextauth]` | — | — | NextAuth handlers (signIn, signOut, session) |
+| [POST](file:///c:/Users/luis.albuquerque/Desktop/simulados/simulaeduca/src/app/api/simulados/gerar/route.ts#22-198) | `/api/auth/register` | ❌ | — | Cadastro (Zod + bcrypt hash) |
+| [POST](file:///c:/Users/luis.albuquerque/Desktop/simulados/simulaeduca/src/app/api/simulados/gerar/route.ts#22-198) | `/api/auth/reset-password` | ❌ | — | Reset de senha |
+| [GET](file:///c:/Users/luis.albuquerque/Desktop/simulados/simulaeduca/src/app/api/descritores/route.ts#4-25) | `/api/simulados` | ✅ | any | Listar simulados (paginação) |
+| [POST](file:///c:/Users/luis.albuquerque/Desktop/simulados/simulaeduca/src/app/api/simulados/gerar/route.ts#22-198) | `/api/simulados` | ✅ | any | Criar rascunho de simulado |
+| [POST](file:///c:/Users/luis.albuquerque/Desktop/simulados/simulaeduca/src/app/api/simulados/gerar/route.ts#22-198) | `/api/simulados/gerar` | ✅ | any | Gerar questões com IA (pipeline completo) |
+| [GET](file:///c:/Users/luis.albuquerque/Desktop/simulados/simulaeduca/src/app/api/descritores/route.ts#4-25) | `/api/simulados/pdf` | ✅ | any | Gerar PDF (prova ou gabarito) |
+| [GET](file:///c:/Users/luis.albuquerque/Desktop/simulados/simulaeduca/src/app/api/descritores/route.ts#4-25) | `/api/descritores` | ❌ | — | Buscar descritores por avaliação/disciplina/série |
+| [GET](file:///c:/Users/luis.albuquerque/Desktop/simulados/simulaeduca/src/app/api/descritores/route.ts#4-25) | `/api/creditos` | ✅ | any | Saldo + últimas 20 transações |
+| [GET](file:///c:/Users/luis.albuquerque/Desktop/simulados/simulaeduca/src/app/api/descritores/route.ts#4-25) | `/api/user/profile` | ✅ | any | Dados do perfil |
+| [PATCH](file:///c:/Users/luis.albuquerque/Desktop/simulados/simulaeduca/src/app/api/user/profile/route.ts#43-85) | `/api/user/profile` | ✅ | any | Atualizar perfil (Zod validation) |
+| [GET](file:///c:/Users/luis.albuquerque/Desktop/simulados/simulaeduca/src/app/api/descritores/route.ts#4-25) | `/api/admin/ingest` | ✅ | admin | Listar materiais ingeridos |
+| [POST](file:///c:/Users/luis.albuquerque/Desktop/simulados/simulaeduca/src/app/api/simulados/gerar/route.ts#22-198) | `/api/admin/ingest` | ✅ | admin | Upload + ingestão RAG |
+| [DELETE](file:///c:/Users/luis.albuquerque/Desktop/simulados/simulaeduca/src/app/api/admin/ingest/route.ts#97-114) | `/api/admin/ingest` | ✅ | admin | Remover material por fonte |
+| [POST](file:///c:/Users/luis.albuquerque/Desktop/simulados/simulaeduca/src/app/api/simulados/gerar/route.ts#22-198) | `/api/admin/scrape` | ✅ | admin | Web scraping (stub) |
+| [POST](file:///c:/Users/luis.albuquerque/Desktop/simulados/simulaeduca/src/app/api/simulados/gerar/route.ts#22-198) | `/api/webhooks/stripe` | — | — | Webhook Stripe (stub) |
+
+---
+
+## Sistema de Créditos
+
+```mermaid
+graph LR
+  A["Cadastro"] -->|"+ 10 créditos"| B["creditsBalance"]
+  C["Geração de simulado"] -->|"- N créditos (1/questão)"| B
+  D["Compra Stripe"] -->|"+ N créditos"| B
+  B --> E["CreditTransaction log"]
+```
+
+- Cada **questão gerada** custa **1 crédito**
+- Usuários novos recebem **10 créditos grátis**
+- Débito usa **Prisma transaction** (atômico: decrement + log)
+- Tabela `plans` define limites por plano (preparado, não implementado)
+
+---
+
+## Segurança e Controle de Acesso
+
+| Camada | Implementação |
+|--------|--------------|
+| **Middleware** | Protege `/dashboard/*`, `/admin/*` etc. via JWT |
+| **API Routes** | Cada rota verifica `session.user.id` / `session.user.role` |
+| **Ownership** | Simulados verificam `exam.userId === session.user.id` |
+| **Senhas** | bcrypt com salt rounds = 12 |
+| **Validação** | Zod schemas no register e profile |
+| **Admin** | Role check duplo: middleware + API route |
+
+---
+
+## Funcionalidades Pendentes (Stubs)
+
+| Feature | Arquivo | Status |
+|---------|---------|--------|
+| Planos e limites | [plans.ts](file:///c:/Users/luis.albuquerque/Desktop/simulados/simulaeduca/src/lib/billing/plans.ts) | TODO Semana 7 |
+| Stripe SDK | [stripe.ts](file:///c:/Users/luis.albuquerque/Desktop/simulados/simulaeduca/src/lib/billing/stripe.ts) | TODO Semana 7 |
+| Web Scraping | [scrape/route.ts](file:///c:/Users/luis.albuquerque/Desktop/simulados/simulaeduca/src/app/api/admin/scrape/route.ts) | Stub |
+| Stripe Webhooks | [stripe/route.ts](file:///c:/Users/luis.albuquerque/Desktop/simulados/simulaeduca/src/app/api/webhooks/stripe/route.ts) | Stub |
+| Redis caching | docker-compose.yml | Container ativo, sem uso no código |
+| [ai/index.ts](file:///c:/Users/luis.albuquerque/Desktop/simulados/simulaeduca/src/lib/ai/index.ts) | [index.ts](file:///c:/Users/luis.albuquerque/Desktop/simulados/simulaeduca/src/lib/ai/index.ts) | Re-exports vazios |

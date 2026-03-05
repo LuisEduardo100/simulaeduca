@@ -168,6 +168,7 @@ model Exam {
   creditsConsumed Int       @default(0) @map("credits_consumed")
   headerConfig    Json?     @map("header_config") // { mode: "standard"|"custom"|"none", imageUrl?, teacherName?, school?, discipline?, class?, examDate? }
   difficulty      String?   // facil, medio, dificil, misto — dificuldade geral da prova
+  descriptorDistribution Json? @map("descriptor_distribution") // [{descriptorId, questionCount, difficulty?}] para retomada
   pdfUrl          String?   @map("pdf_url")
   answerSheetUrl  String?   @map("answer_sheet_url")
   answerKeyUrl    String?   @map("answer_key_url")

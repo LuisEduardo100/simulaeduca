@@ -42,7 +42,7 @@ export async function GET(
     examId: exam.id,
     status: exam.status as GenerationProgressData["status"],
     totalExpected: exam.expectedQuestions,
-    totalGenerated: exam.totalQuestions,
+    totalGenerated: exam.questions.length,
     questions: exam.questions.map((q) => ({
       questionNumber: q.questionNumber,
       descriptorCode: q.descriptor.code,

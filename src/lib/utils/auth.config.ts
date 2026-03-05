@@ -14,9 +14,24 @@ export const authConfig: NextAuthConfig = {
     error: "/login",
   },
   callbacks: {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    jwt({ token, user }: any) {
+      if (user) {
+        token.id = user.id;
+        token.role = user.role ?? "teacher";
+      }
+      return token;
+    },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    session({ session, token }: any) {
+      if (session.user && token) {
+        session.user.id = token.id ?? token.sub ?? "";
+        session.user.role = token.role ?? "teacher";
+      }
+      return session;
+    },
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     authorized({ auth }) {
-      // A lógica detalhada de autorização fica no middleware.ts
       return true;
     },
   },

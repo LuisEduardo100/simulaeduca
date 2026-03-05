@@ -54,7 +54,7 @@ export function GenerationProgress({
   useEffect(() => {
     // Iniciar polling
     fetchProgress();
-    pollingRef.current = setInterval(fetchProgress, 3000);
+    pollingRef.current = setInterval(fetchProgress, 1500);
 
     return () => {
       if (pollingRef.current) clearInterval(pollingRef.current);
@@ -99,7 +99,7 @@ export function GenerationProgress({
     } finally {
       setIsResuming(false);
       // Restart polling
-      pollingRef.current = setInterval(fetchProgress, 3000);
+      pollingRef.current = setInterval(fetchProgress, 1500);
     }
   }
 
@@ -144,7 +144,7 @@ export function GenerationProgress({
           {/* Questões pendentes (indicador visual) */}
           {phase === "generating" &&
             Array.from(
-              { length: Math.min(1, totalExpected - totalGenerated) },
+              { length: Math.min(5, totalExpected - totalGenerated) },
               (_, i) => (
                 <div
                   key={`pending-${i}`}
