@@ -18,8 +18,10 @@ export interface QuestionGeneratorInput {
   difficulty?: Difficulty;
 }
 
+// gpt-4.1-mini: melhor seguimento de instruções e saída JSON mais estável que gpt-4o-mini,
+// reduzindo retentativas. Custo similar (~$0.40/$1.60 por 1M tokens vs $0.15/$0.60).
 const llm = new ChatOpenAI({
-  model: "gpt-4o-mini",
+  model: "gpt-4.1-mini",
   temperature: 0.7,
 });
 
