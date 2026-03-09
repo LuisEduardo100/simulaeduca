@@ -15,7 +15,8 @@
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down",
     "docker:logs": "docker compose logs -f",
-    "setup:summary": "tsx scripts/show-setup-summary.ts"
+    "create-admin": "tsx scripts/create-admin.ts",
+    "ingest-materials": "tsx prisma/seed/rag/ingest-materials.ts"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.1",
