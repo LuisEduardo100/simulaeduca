@@ -32,6 +32,7 @@ model User {
   exams              Exam[]
   creditTransactions CreditTransaction[]
   materialChunks     MaterialChunk[]
+  scrapedSources     ScrapedSource[]
 
   @@map("users")
 }
@@ -263,6 +264,30 @@ model MaterialChunk {
   uploader User @relation(fields: [uploadedBy], references: [id])
 
   @@map("material_chunks")
+}
+
+// ─── Rastreio de Scraping de Arquivos ────────────────────────────────────────
+
+model ScrapedSource {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  pageUrl        String   @map("page_url")           // URL da página onde o arquivo foi encontrado
+  fileName       String   @map("file_name")          // nome original do arquivo
+  fileUrl        String   @map("file_url")           // URL de download do arquivo
+  fileType       String   @map("file_type")          // pdf, docx, txt
+  fileSize       Int?     @map("file_size")          // tamanho em bytes
+  storedPath     String?  @map("stored_path")        // caminho local onde foi salvo
+  chunksCreated  Int      @default(0) @map("chunks_created")
+  descriptorCode String?  @map("descriptor_code")
+  subjectSlug    String?  @map("subject_slug")
+  gradeLevelSlug String?  @map("grade_level_slug")
+  evaluationSlug String?  @map("evaluation_slug")
+  difficulty     String?
+  scrapedBy      String   @db.Uuid @map("scraped_by")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  scraper User @relation(fields: [scrapedBy], references: [id])
+
+  @@map("scraped_sources")
 }
 
 // ─── Banco de Questões com pgvector ──────────────────────────────────────────
