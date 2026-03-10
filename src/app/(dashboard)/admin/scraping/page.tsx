@@ -14,6 +14,12 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
+import {
+  QuestionCard,
+  type ExtractedQuestion,
+  type ExtractedQuestionUI,
+} from "@/components/admin/question-card";
+import { GlobalMetadata } from "@/components/admin/global-metadata";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -48,22 +54,6 @@ interface ScrapedSource {
   createdAt: string;
 }
 
-interface ExtractedQuestion {
-  stem: string;
-  optionA: string;
-  optionB: string;
-  optionC: string;
-  optionD: string;
-  correctAnswer: string;
-  descriptorCode: string;
-  difficulty: string;
-}
-
-interface ExtractedQuestionUI extends ExtractedQuestion {
-  id: string;
-  selected: boolean;
-}
-
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatBytes(bytes: number) {
@@ -78,54 +68,7 @@ function typeBadgeColor(type: string) {
   return "bg-gray-100 text-gray-700 border-gray-200";
 }
 
-// ─── Metadata global — avaliação + disciplina + série ─────────────────────────
-
-function GlobalMetadata({
-  evaluationSlug, setEvaluationSlug,
-  subjectSlug, setSubjectSlug,
-  gradeLevelSlug, setGradeLevelSlug,
-}: {
-  evaluationSlug: string; setEvaluationSlug: (v: string) => void;
-  subjectSlug: string; setSubjectSlug: (v: string) => void;
-  gradeLevelSlug: string; setGradeLevelSlug: (v: string) => void;
-}) {
-  return (
-    <div className="grid grid-cols-3 gap-4">
-      <div>
-        <Label>Avaliação</Label>
-        <Select onValueChange={setEvaluationSlug} value={evaluationSlug}>
-          <SelectTrigger className="mt-1"><SelectValue placeholder="Selecionar..." /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="spaece">SPAECE</SelectItem>
-            <SelectItem value="saeb">SAEB</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-      <div>
-        <Label>Disciplina</Label>
-        <Select onValueChange={setSubjectSlug} value={subjectSlug}>
-          <SelectTrigger className="mt-1"><SelectValue placeholder="Selecionar..." /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="matematica">Matemática</SelectItem>
-            <SelectItem value="portugues">Língua Portuguesa</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-      <div>
-        <Label>Série</Label>
-        <Select onValueChange={setGradeLevelSlug} value={gradeLevelSlug}>
-          <SelectTrigger className="mt-1"><SelectValue placeholder="Selecionar..." /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="5_ano">5º ano</SelectItem>
-            <SelectItem value="9_ano">9º ano</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-    </div>
-  );
-}
-
-// ─── Metadata completa — para ingestão de texto bruto ─────────────────────────
+// ─── Metadata completa — para ingestao de texto bruto ─────────────────────────
 
 function MetadataFields({
   evaluationSlug, setEvaluationSlug,
@@ -143,7 +86,7 @@ function MetadataFields({
   return (
     <div className="grid grid-cols-2 gap-4">
       <div>
-        <Label>Avaliação</Label>
+        <Label>Avaliacao</Label>
         <Select onValueChange={setEvaluationSlug} value={evaluationSlug}>
           <SelectTrigger className="mt-1"><SelectValue placeholder="Selecionar..." /></SelectTrigger>
           <SelectContent>
@@ -157,18 +100,18 @@ function MetadataFields({
         <Select onValueChange={setSubjectSlug} value={subjectSlug}>
           <SelectTrigger className="mt-1"><SelectValue placeholder="Selecionar..." /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="matematica">Matemática</SelectItem>
-            <SelectItem value="portugues">Língua Portuguesa</SelectItem>
+            <SelectItem value="matematica">Matematica</SelectItem>
+            <SelectItem value="portugues">Lingua Portuguesa</SelectItem>
           </SelectContent>
         </Select>
       </div>
       <div>
-        <Label>Série</Label>
+        <Label>Serie</Label>
         <Select onValueChange={setGradeLevelSlug} value={gradeLevelSlug}>
           <SelectTrigger className="mt-1"><SelectValue placeholder="Selecionar..." /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="5_ano">5º ano</SelectItem>
-            <SelectItem value="9_ano">9º ano</SelectItem>
+            <SelectItem value="5_ano">5o ano</SelectItem>
+            <SelectItem value="9_ano">9o ano</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -177,14 +120,14 @@ function MetadataFields({
         <Select onValueChange={setDifficulty} value={difficulty}>
           <SelectTrigger className="mt-1"><SelectValue placeholder="Selecionar..." /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="facil">Fácil</SelectItem>
-            <SelectItem value="medio">Médio</SelectItem>
-            <SelectItem value="dificil">Difícil</SelectItem>
+            <SelectItem value="facil">Facil</SelectItem>
+            <SelectItem value="medio">Medio</SelectItem>
+            <SelectItem value="dificil">Dificil</SelectItem>
           </SelectContent>
         </Select>
       </div>
       <div className="col-span-2">
-        <Label>Código do Descritor (opcional)</Label>
+        <Label>Codigo do Descritor (opcional)</Label>
         <Input
           className="mt-1"
           placeholder="ex: D07"
@@ -197,114 +140,9 @@ function MetadataFields({
   );
 }
 
-// ─── Card de questão extraída (editável inline) ───────────────────────────────
-
-function QuestionCard({
-  question,
-  index,
-  onToggle,
-  onUpdate,
-}: {
-  question: ExtractedQuestionUI;
-  index: number;
-  onToggle: () => void;
-  onUpdate: (patch: Partial<ExtractedQuestion>) => void;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const stemPreview =
-    question.stem.length > 120 ? question.stem.slice(0, 120) + "…" : question.stem;
-
-  return (
-    <div
-      className={`rounded-md border p-3 transition-colors ${
-        question.selected
-          ? "bg-blue-50 border-blue-200"
-          : "bg-background border-border opacity-60"
-      }`}
-    >
-      <div className="flex items-start gap-3">
-        <input
-          type="checkbox"
-          checked={question.selected}
-          onChange={onToggle}
-          className="mt-1 shrink-0"
-        />
-        <div className="flex-1 min-w-0">
-          {/* Controles inline */}
-          <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-            <span className="text-xs font-semibold text-muted-foreground shrink-0">
-              Q{index + 1}
-            </span>
-            <Input
-              className="h-6 w-16 text-xs px-1.5 py-0"
-              placeholder="D07"
-              value={question.descriptorCode}
-              onChange={(e) => onUpdate({ descriptorCode: e.target.value.toUpperCase() })}
-              maxLength={5}
-              title="Código do descritor"
-            />
-            <Select
-              value={question.difficulty || "_none"}
-              onValueChange={(v) => onUpdate({ difficulty: v === "_none" ? "" : v })}
-            >
-              <SelectTrigger className="h-6 w-24 text-xs px-1.5 py-0">
-                <SelectValue placeholder="Dific." />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="_none">— Dific.</SelectItem>
-                <SelectItem value="facil">Fácil</SelectItem>
-                <SelectItem value="medio">Médio</SelectItem>
-                <SelectItem value="dificil">Difícil</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select
-              value={question.correctAnswer || "_none"}
-              onValueChange={(v) => onUpdate({ correctAnswer: v === "_none" ? "" : v })}
-            >
-              <SelectTrigger className="h-6 w-20 text-xs px-1.5 py-0">
-                <SelectValue placeholder="Gab." />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="_none">— Gab.</SelectItem>
-                <SelectItem value="A">A</SelectItem>
-                <SelectItem value="B">B</SelectItem>
-                <SelectItem value="C">C</SelectItem>
-                <SelectItem value="D">D</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Stem */}
-          <p className="text-sm text-foreground leading-snug">{stemPreview}</p>
-          {question.stem.length > 120 && (
-            <button
-              onClick={() => setExpanded((v) => !v)}
-              className="text-xs text-blue-600 hover:underline mt-1"
-            >
-              {expanded ? "Recolher" : "Ver completo + alternativas"}
-            </button>
-          )}
-          {expanded && (
-            <div className="mt-2 space-y-1 text-sm border-t pt-2">
-              <p className="whitespace-pre-wrap text-foreground">{question.stem}</p>
-              <div className="mt-2 space-y-0.5 text-muted-foreground">
-                <p>A) {question.optionA}</p>
-                <p>B) {question.optionB}</p>
-                <p>C) {question.optionC}</p>
-                <p>D) {question.optionD}</p>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ─── Aba 1: Scraping de Texto HTML ────────────────────────────────────────────
 
 function HtmlScrapingTab() {
-  // Passo 1 — scrape
   const [url, setUrl] = useState("");
   const [isScraping, setIsScraping] = useState(false);
   const [scrapeError, setScrapeError] = useState<string | null>(null);
@@ -313,22 +151,18 @@ function HtmlScrapingTab() {
   const [wordCount, setWordCount] = useState<number | null>(null);
   const [pageUrl, setPageUrl] = useState("");
 
-  // Passo 2 — extração por IA
   const [isExtracting, setIsExtracting] = useState(false);
   const [extractError, setExtractError] = useState<string | null>(null);
   const [questions, setQuestions] = useState<ExtractedQuestionUI[] | null>(null);
 
-  // Metadata global para questões extraídas (evaluation + subject + grade por questão)
   const [evaluationSlug, setEvaluationSlug] = useState("");
   const [subjectSlug, setSubjectSlug] = useState("");
   const [gradeLevelSlug, setGradeLevelSlug] = useState("");
 
-  // Passo 3 — ingerir questões
   const [isIngesting, setIsIngesting] = useState(false);
   const [ingestResult, setIngestResult] = useState<{ inserted: number; failed: number } | null>(null);
   const [ingestError, setIngestError] = useState<string | null>(null);
 
-  // Fluxo alternativo — ingerir como texto bruto (material de referência)
   const [showRawIngest, setShowRawIngest] = useState(false);
   const [rawEvaluation, setRawEvaluation] = useState("");
   const [rawSubject, setRawSubject] = useState("");
@@ -352,7 +186,7 @@ function HtmlScrapingTab() {
     setShowRawIngest(false);
     setRawResult(null);
     setRawError(null);
-    if (!url.trim()) { setScrapeError("Digite uma URL válida."); return; }
+    if (!url.trim()) { setScrapeError("Digite uma URL valida."); return; }
 
     setIsScraping(true);
     try {
@@ -369,7 +203,7 @@ function HtmlScrapingTab() {
         setWordCount(data.wordCount);
         setPageUrl(url.trim());
       }
-    } catch { setScrapeError("Erro de conexão."); }
+    } catch { setScrapeError("Erro de conexao."); }
     finally { setIsScraping(false); }
   }
 
@@ -378,7 +212,7 @@ function HtmlScrapingTab() {
     setQuestions(null);
     setIngestResult(null);
     setIngestError(null);
-    if (!scrapedText.trim()) { setExtractError("Conteúdo vazio."); return; }
+    if (!scrapedText.trim()) { setExtractError("Conteudo vazio."); return; }
 
     setIsExtracting(true);
     try {
@@ -389,10 +223,10 @@ function HtmlScrapingTab() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setExtractError(data.error ?? "Erro na extração com IA.");
+        setExtractError(data.error ?? "Erro na extracao com IA.");
       } else if (data.total === 0) {
         setExtractError(
-          "Nenhuma questão de múltipla escolha completa encontrada. Use 'Ingerir como material de referência' para apostilas e artigos."
+          "Nenhuma questao de multipla escolha completa encontrada. Use 'Ingerir como material de referencia' para apostilas e artigos."
         );
       } else {
         setQuestions(
@@ -403,7 +237,7 @@ function HtmlScrapingTab() {
           }))
         );
       }
-    } catch { setExtractError("Erro de conexão."); }
+    } catch { setExtractError("Erro de conexao."); }
     finally { setIsExtracting(false); }
   }
 
@@ -429,7 +263,7 @@ function HtmlScrapingTab() {
     setIngestError(null);
     setIngestResult(null);
     const selected = (questions ?? []).filter((q) => q.selected);
-    if (selected.length === 0) { setIngestError("Selecione ao menos uma questão."); return; }
+    if (selected.length === 0) { setIngestError("Selecione ao menos uma questao."); return; }
 
     setIsIngesting(true);
     try {
@@ -455,14 +289,14 @@ function HtmlScrapingTab() {
       const data = await res.json();
       if (!res.ok) setIngestError(data.error ?? "Erro ao ingerir.");
       else setIngestResult(data);
-    } catch { setIngestError("Erro de conexão."); }
+    } catch { setIngestError("Erro de conexao."); }
     finally { setIsIngesting(false); }
   }
 
   async function handleIngestRaw() {
     setRawError(null);
     setRawResult(null);
-    if (!scrapedText.trim()) { setRawError("Conteúdo vazio."); return; }
+    if (!scrapedText.trim()) { setRawError("Conteudo vazio."); return; }
 
     setIsIngestingRaw(true);
     try {
@@ -477,8 +311,8 @@ function HtmlScrapingTab() {
       const res = await fetch("/api/admin/ingest", { method: "POST", body: formData });
       const data = await res.json();
       if (!res.ok) setRawError(data.error ?? "Erro ao ingerir.");
-      else setRawResult(`✓ ${data.chunksCreated} chunks criados com sucesso.`);
-    } catch { setRawError("Erro de conexão."); }
+      else setRawResult(`${data.chunksCreated} chunks criados com sucesso.`);
+    } catch { setRawError("Erro de conexao."); }
     finally { setIsIngestingRaw(false); }
   }
 
@@ -489,14 +323,14 @@ function HtmlScrapingTab() {
     <div className="space-y-6">
       {/* Passo 1: Scrape */}
       <Card className="p-6">
-        <h2 className="text-lg font-semibold mb-1">1. Extrair texto de página HTML</h2>
+        <h2 className="text-lg font-semibold mb-1">1. Extrair texto de pagina HTML</h2>
         <p className="text-sm text-muted-foreground mb-4">
-          Ideal para páginas cujo conteúdo das questões está escrito diretamente no HTML
-          (não para páginas que são listas de links de download — use a aba de Arquivos).
+          Ideal para paginas cujo conteudo das questoes esta escrito diretamente no HTML
+          (nao para paginas que sao listas de links de download — use a aba de Arquivos).
         </p>
         <form onSubmit={handleScrape} className="space-y-4">
           <div>
-            <Label htmlFor="html-url">URL da página</Label>
+            <Label htmlFor="html-url">URL da pagina</Label>
             <div className="flex gap-2 mt-1">
               <Input
                 id="html-url"
@@ -508,7 +342,7 @@ function HtmlScrapingTab() {
                 className="flex-1"
               />
               <Button type="submit" disabled={isScraping || !url.trim()}>
-                {isScraping ? "Buscando..." : "Buscar conteúdo"}
+                {isScraping ? "Buscando..." : "Buscar conteudo"}
               </Button>
             </div>
           </div>
@@ -530,11 +364,11 @@ function HtmlScrapingTab() {
                 </p>
               </div>
               <span className="text-xs text-green-700 bg-green-50 border border-green-200 rounded px-2 py-1">
-                ✓ Extraído
+                Extraido
               </span>
             </div>
             <div>
-              <Label>Pré-visualização (editável)</Label>
+              <Label>Pre-visualizacao (editavel)</Label>
               <textarea
                 className="mt-1 w-full h-36 rounded-md border border-input bg-background px-3 py-2 text-sm resize-y focus:outline-none focus:ring-2 focus:ring-ring font-mono"
                 value={scrapedText}
@@ -545,15 +379,14 @@ function HtmlScrapingTab() {
         )}
       </Card>
 
-      {/* Passo 2: Ações após extração — antes de mostrar questões */}
+      {/* Passo 2: Acoes apos extracao */}
       {hasContent && !questions && (
         <Card className="p-6">
-          <h2 className="text-lg font-semibold mb-1">2. O que fazer com este conteúdo?</h2>
+          <h2 className="text-lg font-semibold mb-1">2. O que fazer com este conteudo?</h2>
           <p className="text-sm text-muted-foreground mb-5">
-            Use a <strong>extração por IA</strong> para páginas com questões de múltipla
-            escolha — o gpt-4o identificará cada questão individualmente com seu descritor e
-            dificuldade. Para apostilas, artigos ou matrizes de referência, use a{" "}
-            <strong>ingestão como material de referência</strong>.
+            Use a <strong>extracao por IA</strong> para paginas com questoes de multipla
+            escolha. Para apostilas, artigos ou matrizes de referencia, use a{" "}
+            <strong>ingestao como material de referencia</strong>.
           </p>
 
           {extractError && (
@@ -564,29 +397,28 @@ function HtmlScrapingTab() {
 
           <div className="flex flex-col sm:flex-row gap-3">
             <Button onClick={handleExtract} disabled={isExtracting} className="flex-1">
-              {isExtracting ? "Extraindo com IA (gpt-4o)…" : "✦ Extrair questões com IA"}
+              {isExtracting ? "Extraindo com IA (gpt-4o)..." : "Extrair questoes com IA"}
             </Button>
             <Button
               variant="outline"
               onClick={() => setShowRawIngest((v) => !v)}
               className="flex-1"
             >
-              {showRawIngest ? "Ocultar" : "Ingerir como material de referência"}
+              {showRawIngest ? "Ocultar" : "Ingerir como material de referencia"}
             </Button>
           </div>
 
           {isExtracting && (
             <p className="text-xs text-muted-foreground text-center mt-3">
-              Analisando o texto e identificando questões de múltipla escolha… pode levar alguns segundos.
+              Analisando o texto e identificando questoes de multipla escolha... pode levar alguns segundos.
             </p>
           )}
 
-          {/* Fluxo alternativo: texto bruto */}
           {showRawIngest && (
             <div className="mt-6 space-y-4 border-t pt-5">
               <p className="text-sm text-muted-foreground">
-                O texto será dividido em chunks por tamanho e vetorizado como material de
-                referência. Toda a ingestão compartilhará a mesma metadata abaixo.
+                O texto sera dividido em chunks por tamanho e vetorizado como material de
+                referencia. Toda a ingestao compartilhara a mesma metadata abaixo.
               </p>
               <MetadataFields
                 evaluationSlug={rawEvaluation} setEvaluationSlug={setRawEvaluation}
@@ -606,26 +438,24 @@ function HtmlScrapingTab() {
                 </div>
               )}
               <Button onClick={handleIngestRaw} disabled={isIngestingRaw} className="w-full">
-                {isIngestingRaw ? "Indexando…" : "Ingerir texto no RAG"}
+                {isIngestingRaw ? "Indexando..." : "Ingerir texto no RAG"}
               </Button>
             </div>
           )}
         </Card>
       )}
 
-      {/* Passo 3: Revisão e ingestão de questões extraídas */}
+      {/* Passo 3: Revisao e ingestao de questoes extraidas */}
       {questions && (
         <Card className="p-6 space-y-5">
           <div className="flex items-start justify-between gap-4">
             <div>
               <h2 className="text-lg font-semibold">
-                {questions.length} questão{questions.length !== 1 ? "ões" : ""} extraída
-                {questions.length !== 1 ? "s" : ""} pela IA
+                {questions.length} questao(oes) extraida(s) pela IA
               </h2>
               <p className="text-sm text-muted-foreground mt-0.5">
                 Ajuste o <strong>descritor</strong>, <strong>dificuldade</strong> e{" "}
-                <strong>gabarito</strong> de cada questão diretamente no card.
-                Desmarque questões que não devem ser indexadas.
+                <strong>gabarito</strong> de cada questao diretamente no card.
               </p>
             </div>
             <Button
@@ -634,14 +464,13 @@ function HtmlScrapingTab() {
               className="shrink-0"
               onClick={() => { setQuestions(null); setExtractError(null); setIngestResult(null); }}
             >
-              Refazer extração
+              Refazer extracao
             </Button>
           </div>
 
-          {/* Metadata global */}
           <div className="rounded-md bg-muted/40 border p-4 space-y-3">
             <p className="text-sm font-medium">
-              Metadata global — aplica a todas as questões selecionadas:
+              Metadata global — aplica a todas as questoes selecionadas:
             </p>
             <GlobalMetadata
               evaluationSlug={evaluationSlug} setEvaluationSlug={setEvaluationSlug}
@@ -652,17 +481,15 @@ function HtmlScrapingTab() {
 
           <Separator />
 
-          {/* Seleção em massa */}
           <div className="flex items-center justify-between text-sm">
             <span className="text-muted-foreground">
-              {selectedCount} de {questions.length} selecionada{selectedCount !== 1 ? "s" : ""}
+              {selectedCount} de {questions.length} selecionada(s)
             </span>
             <button onClick={toggleAllQuestions} className="text-blue-600 hover:underline text-xs">
               {selectedCount === questions.length ? "Desmarcar todas" : "Selecionar todas"}
             </button>
           </div>
 
-          {/* Cards de questões */}
           <div className="space-y-2 max-h-[480px] overflow-y-auto pr-1">
             {questions.map((q, i) => (
               <QuestionCard
@@ -679,9 +506,7 @@ function HtmlScrapingTab() {
 
           {ingestResult && (
             <div className="rounded-md bg-green-50 border border-green-200 p-4 text-green-800 text-sm">
-              ✓{" "}
-              {ingestResult.inserted} questão{ingestResult.inserted !== 1 ? "ões" : ""} indexada
-              {ingestResult.inserted !== 1 ? "s" : ""} no RAG
+              {ingestResult.inserted} questao(oes) indexada(s) no RAG
               {ingestResult.failed > 0 && (
                 <span className="text-orange-700"> · {ingestResult.failed} falhou</span>
               )}
@@ -699,11 +524,11 @@ function HtmlScrapingTab() {
             className="w-full"
           >
             {isIngesting
-              ? `Indexando ${selectedCount} questão${selectedCount !== 1 ? "ões" : ""}…`
-              : `Ingerir ${selectedCount} questão${selectedCount !== 1 ? "ões" : ""} no RAG`}
+              ? `Indexando ${selectedCount} questao(oes)...`
+              : `Ingerir ${selectedCount} questao(oes) no RAG`}
           </Button>
           <p className="text-xs text-muted-foreground text-center">
-            Cada questão será um chunk individual com seu próprio descritor e dificuldade.
+            Cada questao sera um chunk individual com seu proprio descritor e dificuldade.
           </p>
         </Card>
       )}
@@ -714,6 +539,7 @@ function HtmlScrapingTab() {
 // ─── Aba 2: Scraping em Lote de Arquivos ──────────────────────────────────────
 
 function BatchFileScrapingTab() {
+  // Passo 1 — scan
   const [url, setUrl] = useState("");
   const [isScanning, setIsScanning] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
@@ -721,16 +547,28 @@ function BatchFileScrapingTab() {
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
   const [pageUrl, setPageUrl] = useState("");
 
+  // Metadata global
   const [evaluationSlug, setEvaluationSlug] = useState("");
   const [subjectSlug, setSubjectSlug] = useState("");
   const [gradeLevelSlug, setGradeLevelSlug] = useState("");
-  const [difficulty, setDifficulty] = useState("");
-  const [descriptorCode, setDescriptorCode] = useState("");
 
+  // Smart extraction state
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [extractProgress, setExtractProgress] = useState<string | null>(null);
+  const [extractError, setExtractError] = useState<string | null>(null);
+  const [questions, setQuestions] = useState<ExtractedQuestionUI[] | null>(null);
+
+  // Question ingestion
   const [isIngesting, setIsIngesting] = useState(false);
-  const [ingestResults, setIngestResults] = useState<IngestFileResult[] | null>(null);
+  const [ingestResult, setIngestResult] = useState<{ inserted: number; failed: number } | null>(null);
   const [ingestError, setIngestError] = useState<string | null>(null);
 
+  // Raw ingest (existing behavior)
+  const [isIngestingRaw, setIsIngestingRaw] = useState(false);
+  const [ingestResults, setIngestResults] = useState<IngestFileResult[] | null>(null);
+  const [ingestRawError, setIngestRawError] = useState<string | null>(null);
+
+  // History
   const [sources, setSources] = useState<ScrapedSource[]>([]);
   const [isLoadingSources, setIsLoadingSources] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -753,7 +591,10 @@ function BatchFileScrapingTab() {
     setFoundFiles([]);
     setSelectedFiles(new Set());
     setIngestResults(null);
-    if (!url.trim()) { setScanError("Digite uma URL válida."); return; }
+    setQuestions(null);
+    setExtractError(null);
+    setIngestResult(null);
+    if (!url.trim()) { setScanError("Digite uma URL valida."); return; }
 
     setIsScanning(true);
     try {
@@ -764,15 +605,15 @@ function BatchFileScrapingTab() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setScanError(data.error ?? "Erro ao escanear página.");
+        setScanError(data.error ?? "Erro ao escanear pagina.");
       } else {
         setFoundFiles(data.files);
         setPageUrl(data.pageUrl);
         if (data.files.length === 0)
-          setScanError("Nenhum arquivo PDF, DOCX ou TXT encontrado nesta página.");
+          setScanError("Nenhum arquivo PDF, DOCX ou TXT encontrado nesta pagina.");
         else setSelectedFiles(new Set(data.files.map((f: FoundFile) => f.url)));
       }
-    } catch { setScanError("Erro de conexão."); }
+    } catch { setScanError("Erro de conexao."); }
     finally { setIsScanning(false); }
   }
 
@@ -790,13 +631,138 @@ function BatchFileScrapingTab() {
     else setSelectedFiles(new Set(foundFiles.map((f) => f.url)));
   }
 
-  async function handleIngest() {
-    setIngestResults(null);
+  // ─── Smart: Extrair questoes com IA ─────────────────────────────────────────
+
+  async function handleExtractQuestions() {
+    setExtractError(null);
+    setQuestions(null);
+    setIngestResult(null);
     setIngestError(null);
-    const filesToIngest = foundFiles.filter((f) => selectedFiles.has(f.url));
-    if (filesToIngest.length === 0) { setIngestError("Selecione ao menos um arquivo."); return; }
+
+    const filesToProcess = foundFiles.filter((f) => selectedFiles.has(f.url));
+    if (filesToProcess.length === 0) {
+      setExtractError("Selecione ao menos um arquivo.");
+      return;
+    }
+
+    setIsExtracting(true);
+    const allQuestions: ExtractedQuestionUI[] = [];
+    let questionIndex = 0;
+
+    try {
+      for (let i = 0; i < filesToProcess.length; i++) {
+        const file = filesToProcess[i];
+        setExtractProgress(
+          `Processando arquivo ${i + 1} de ${filesToProcess.length}: ${file.filename}...`
+        );
+
+        try {
+          const res = await fetch("/api/admin/scrape-files/extract-questions", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              url: file.url,
+              filename: file.filename,
+              type: file.type,
+            }),
+          });
+          const data = await res.json();
+
+          if (res.ok && data.questions) {
+            const mapped = (data.questions as ExtractedQuestion[]).map((q) => ({
+              ...q,
+              id: `q-${questionIndex++}-${Date.now()}`,
+              selected: true,
+            }));
+            allQuestions.push(...mapped);
+          }
+        } catch {
+          // Skip failed files
+        }
+      }
+
+      if (allQuestions.length === 0) {
+        setExtractError(
+          "Nenhuma questao encontrada nos arquivos selecionados. Tente 'Ingerir como Texto Bruto'."
+        );
+      } else {
+        setQuestions(allQuestions);
+      }
+    } finally {
+      setIsExtracting(false);
+      setExtractProgress(null);
+    }
+  }
+
+  // ─── Ingerir questoes extraidas ─────────────────────────────────────────────
+
+  async function handleIngestQuestions() {
+    if (!questions) return;
+    const selected = questions.filter((q) => q.selected);
+    if (selected.length === 0) {
+      setIngestError("Selecione pelo menos uma questao.");
+      return;
+    }
 
     setIsIngesting(true);
+    setIngestResult(null);
+    setIngestError(null);
+    try {
+      let totalInserted = 0;
+      let totalFailed = 0;
+
+      for (let i = 0; i < selected.length; i += 200) {
+        const batch = selected.slice(i, i + 200);
+        const payload = {
+          questions: batch.map((q) => ({
+            stem: q.stem,
+            optionA: q.optionA,
+            optionB: q.optionB,
+            optionC: q.optionC,
+            optionD: q.optionD,
+            correctAnswer: q.correctAnswer || undefined,
+            descriptorCode: q.descriptorCode || undefined,
+            difficulty: (["facil", "medio", "dificil"].includes(q.difficulty)
+              ? q.difficulty
+              : undefined) as "facil" | "medio" | "dificil" | undefined,
+            subjectSlug: subjectSlug || undefined,
+            gradeLevelSlug: gradeLevelSlug || undefined,
+            evaluationSlug: evaluationSlug || undefined,
+          })),
+          sourceFileName: `scrape-${new URL(pageUrl).hostname}`,
+        };
+
+        const res = await fetch("/api/admin/ingest/questions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          totalInserted += data.inserted ?? 0;
+          totalFailed += data.failed ?? 0;
+        } else {
+          totalFailed += batch.length;
+        }
+      }
+
+      setIngestResult({ inserted: totalInserted, failed: totalFailed });
+    } catch {
+      setIngestError("Erro de conexao. Tente novamente.");
+    } finally {
+      setIsIngesting(false);
+    }
+  }
+
+  // ─── Raw: Ingerir como texto bruto ──────────────────────────────────────────
+
+  async function handleIngestRaw() {
+    setIngestResults(null);
+    setIngestRawError(null);
+    const filesToIngest = foundFiles.filter((f) => selectedFiles.has(f.url));
+    if (filesToIngest.length === 0) { setIngestRawError("Selecione ao menos um arquivo."); return; }
+
+    setIsIngestingRaw(true);
     try {
       const res = await fetch("/api/admin/scrape-files/ingest", {
         method: "POST",
@@ -805,22 +771,38 @@ function BatchFileScrapingTab() {
           pageUrl,
           files: filesToIngest,
           metadata: {
-            descriptorCode: descriptorCode || undefined,
             subjectSlug: subjectSlug || undefined,
             gradeLevelSlug: gradeLevelSlug || undefined,
             evaluationSlug: evaluationSlug || undefined,
-            difficulty: difficulty || undefined,
           },
         }),
       });
       const data = await res.json();
-      if (!res.ok) setIngestError(data.error ?? "Erro ao ingerir arquivos.");
+      if (!res.ok) setIngestRawError(data.error ?? "Erro ao ingerir arquivos.");
       else {
         setIngestResults(data.results);
         await loadSources();
       }
-    } catch { setIngestError("Erro de conexão ao ingerir."); }
-    finally { setIsIngesting(false); }
+    } catch { setIngestRawError("Erro de conexao ao ingerir."); }
+    finally { setIsIngestingRaw(false); }
+  }
+
+  // ─── Helpers ────────────────────────────────────────────────────────────────
+
+  function updateQuestion(id: string, patch: Partial<ExtractedQuestion>) {
+    setQuestions((prev) =>
+      prev ? prev.map((q) => (q.id === id ? { ...q, ...patch } : q)) : prev
+    );
+  }
+
+  function toggleQuestion(id: string) {
+    setQuestions((prev) =>
+      prev ? prev.map((q) => (q.id === id ? { ...q, selected: !q.selected } : q)) : prev
+    );
+  }
+
+  function selectAllQuestions(val: boolean) {
+    setQuestions((prev) => prev ? prev.map((q) => ({ ...q, selected: val })) : prev);
   }
 
   async function handleDeleteSource(id: string) {
@@ -833,19 +815,20 @@ function BatchFileScrapingTab() {
   }
 
   const hasFiles = foundFiles.length > 0;
-  const selectedCount = selectedFiles.size;
+  const selectedFileCount = selectedFiles.size;
+  const selectedQuestionCount = (questions ?? []).filter((q) => q.selected).length;
 
   return (
     <div className="space-y-6">
       {/* Scanner */}
       <Card className="p-6">
-        <h2 className="text-lg font-semibold mb-1">1. Escanear página para arquivos</h2>
+        <h2 className="text-lg font-semibold mb-1">1. Escanear pagina para arquivos</h2>
         <p className="text-sm text-muted-foreground mb-4">
-          Cole a URL de uma página que contenha links para download de provas em PDF ou DOCX.
+          Cole a URL de uma pagina que contenha links para download de provas em PDF ou DOCX.
         </p>
         <form onSubmit={handleScan} className="space-y-4">
           <div>
-            <Label htmlFor="batch-url">URL da página</Label>
+            <Label htmlFor="batch-url">URL da pagina</Label>
             <div className="flex gap-2 mt-1">
               <Input
                 id="batch-url"
@@ -872,11 +855,10 @@ function BatchFileScrapingTab() {
           <div className="mt-6">
             <div className="flex items-center justify-between mb-3">
               <p className="text-sm font-medium">
-                {foundFiles.length} arquivo{foundFiles.length !== 1 ? "s" : ""} encontrado
-                {foundFiles.length !== 1 ? "s" : ""}
+                {foundFiles.length} arquivo(s) encontrado(s)
               </p>
               <button onClick={toggleAll} className="text-xs text-blue-600 hover:underline">
-                {selectedCount === foundFiles.length ? "Desmarcar todos" : "Selecionar todos"}
+                {selectedFileCount === foundFiles.length ? "Desmarcar todos" : "Selecionar todos"}
               </button>
             </div>
             <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
@@ -909,32 +891,41 @@ function BatchFileScrapingTab() {
         )}
       </Card>
 
-      {/* Metadados e ingestão */}
-      {hasFiles && (
-        <Card className="p-6">
-          <h2 className="text-lg font-semibold mb-1">2. Configurar metadados</h2>
-          <p className="text-sm text-muted-foreground mb-4">
-            A mesma metadata será aplicada a todos os{" "}
-            <strong>{selectedCount}</strong> arquivo{selectedCount !== 1 ? "s" : ""} selecionado
-            {selectedCount !== 1 ? "s" : ""}.
+      {/* Metadados e acoes */}
+      {hasFiles && !questions && (
+        <Card className="p-6 space-y-4">
+          <h2 className="text-lg font-semibold mb-1">2. Configurar metadados e processar</h2>
+          <p className="text-sm text-muted-foreground">
+            Metadata global aplicada a todos os {selectedFileCount} arquivo(s) selecionado(s).
           </p>
-          <MetadataFields
+
+          <GlobalMetadata
             evaluationSlug={evaluationSlug} setEvaluationSlug={setEvaluationSlug}
             subjectSlug={subjectSlug} setSubjectSlug={setSubjectSlug}
             gradeLevelSlug={gradeLevelSlug} setGradeLevelSlug={setGradeLevelSlug}
-            difficulty={difficulty} setDifficulty={setDifficulty}
-            descriptorCode={descriptorCode} setDescriptorCode={setDescriptorCode}
           />
-          <Separator className="my-6" />
 
-          {ingestError && (
-            <div className="rounded-md bg-red-50 border border-red-200 p-4 text-red-800 text-sm mb-4">
-              {ingestError}
+          <Separator />
+
+          {extractError && (
+            <div className="rounded-md bg-red-50 border border-red-200 p-3 text-red-800 text-sm">
+              {extractError}
+            </div>
+          )}
+          {ingestRawError && (
+            <div className="rounded-md bg-red-50 border border-red-200 p-3 text-red-800 text-sm">
+              {ingestRawError}
+            </div>
+          )}
+
+          {extractProgress && (
+            <div className="rounded-md bg-blue-50 border border-blue-200 p-3 text-blue-800 text-sm">
+              {extractProgress}
             </div>
           )}
 
           {ingestResults && (
-            <div className="mb-4 space-y-2">
+            <div className="space-y-2">
               {ingestResults.map((r) => (
                 <div
                   key={r.url}
@@ -950,9 +941,9 @@ function BatchFileScrapingTab() {
                   </div>
                   <div className="ml-3 text-right shrink-0">
                     {r.status === "success" ? (
-                      <span>✓ {r.chunksCreated} chunks{r.fileSize ? ` · ${formatBytes(r.fileSize)}` : ""}</span>
+                      <span>{r.chunksCreated} chunks{r.fileSize ? ` · ${formatBytes(r.fileSize)}` : ""}</span>
                     ) : (
-                      <span>✗ Falhou</span>
+                      <span>Falhou</span>
                     )}
                   </div>
                 </div>
@@ -960,26 +951,121 @@ function BatchFileScrapingTab() {
             </div>
           )}
 
-          <Button
-            onClick={handleIngest}
-            disabled={isIngesting || selectedCount === 0}
-            className="w-full"
-          >
-            {isIngesting
-              ? `Baixando e indexando ${selectedCount} arquivo${selectedCount !== 1 ? "s" : ""}...`
-              : `Baixar e ingerir ${selectedCount} arquivo${selectedCount !== 1 ? "s" : ""} no RAG`}
-          </Button>
-          <p className="text-xs text-muted-foreground text-center mt-2">
-            Os arquivos serão baixados, salvos localmente para rastreio e indexados no banco vetorizado.
+          <div className="flex flex-col sm:flex-row gap-3">
+            <Button
+              onClick={handleExtractQuestions}
+              disabled={isExtracting || isIngestingRaw || selectedFileCount === 0}
+              className="flex-1"
+            >
+              {isExtracting
+                ? "Extraindo questoes com IA..."
+                : `Extrair questoes com IA (${selectedFileCount} arquivo(s))`}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={handleIngestRaw}
+              disabled={isExtracting || isIngestingRaw || selectedFileCount === 0}
+            >
+              {isIngestingRaw
+                ? "Indexando..."
+                : "Ingerir como texto bruto"}
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground text-center">
+            A extracao com IA identifica cada questao com seu descritor e dificuldade individuais.
           </p>
         </Card>
       )}
 
-      {/* Histórico */}
+      {/* Questoes extraidas */}
+      {questions && (
+        <Card className="p-6 space-y-5">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h2 className="text-lg font-semibold">
+                {questions.length} questao(oes) extraida(s) dos arquivos
+              </h2>
+              <p className="text-sm text-muted-foreground mt-0.5">
+                Ajuste o <strong>descritor</strong>, <strong>dificuldade</strong> e{" "}
+                <strong>gabarito</strong> de cada questao.
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="shrink-0"
+              onClick={() => {
+                setQuestions(null);
+                setExtractError(null);
+                setIngestResult(null);
+                setIngestError(null);
+              }}
+            >
+              Voltar
+            </Button>
+          </div>
+
+          <Separator />
+
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">
+              {selectedQuestionCount} de {questions.length} selecionada(s)
+            </span>
+            <div className="flex gap-2">
+              <button onClick={() => selectAllQuestions(true)} className="text-blue-600 hover:underline text-xs">
+                Selecionar todas
+              </button>
+              <button onClick={() => selectAllQuestions(false)} className="text-blue-600 hover:underline text-xs">
+                Desmarcar todas
+              </button>
+            </div>
+          </div>
+
+          <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
+            {questions.map((q, i) => (
+              <QuestionCard
+                key={q.id}
+                question={q}
+                index={i}
+                onToggle={() => toggleQuestion(q.id)}
+                onUpdate={(patch) => updateQuestion(q.id, patch)}
+              />
+            ))}
+          </div>
+
+          <Separator />
+
+          {ingestResult && (
+            <div className="rounded-md bg-green-50 border border-green-200 p-4 text-green-800 text-sm">
+              {ingestResult.inserted} questao(oes) indexada(s) no RAG
+              {ingestResult.failed > 0 && (
+                <span className="text-orange-700"> · {ingestResult.failed} falhou</span>
+              )}
+            </div>
+          )}
+          {ingestError && (
+            <div className="rounded-md bg-red-50 border border-red-200 p-4 text-red-800 text-sm">
+              {ingestError}
+            </div>
+          )}
+
+          <Button
+            onClick={handleIngestQuestions}
+            disabled={isIngesting || selectedQuestionCount === 0}
+            className="w-full"
+          >
+            {isIngesting
+              ? `Indexando ${selectedQuestionCount} questao(oes)...`
+              : `Ingerir ${selectedQuestionCount} questao(oes) no RAG`}
+          </Button>
+        </Card>
+      )}
+
+      {/* Historico */}
       <Card className="p-6">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h2 className="text-lg font-semibold">Histórico de arquivos ingeridos</h2>
+            <h2 className="text-lg font-semibold">Historico de arquivos ingeridos</h2>
             <p className="text-sm text-muted-foreground">Rastreio de todas as provas baixadas e indexadas.</p>
           </div>
           <Button variant="outline" size="sm" onClick={loadSources} disabled={isLoadingSources}>
@@ -989,7 +1075,7 @@ function BatchFileScrapingTab() {
 
         {sources.length === 0 ? (
           <p className="text-sm text-muted-foreground text-center py-8">
-            Nenhum arquivo ingerido ainda. Use o scanner acima para começar.
+            Nenhum arquivo ingerido ainda. Use o scanner acima para comecar.
           </p>
         ) : (
           <div className="overflow-x-auto">
@@ -1060,7 +1146,7 @@ function BatchFileScrapingTab() {
               </tbody>
             </table>
             <p className="text-xs text-muted-foreground mt-3">
-              Total: {sources.length} arquivo{sources.length !== 1 ? "s" : ""} ·{" "}
+              Total: {sources.length} arquivo(s) ·{" "}
               {sources.reduce((a, s) => a + s.chunksCreated, 0)} chunks indexados
             </p>
           </div>
@@ -1070,7 +1156,7 @@ function BatchFileScrapingTab() {
   );
 }
 
-// ─── Página Principal ─────────────────────────────────────────────────────────
+// ─── Pagina Principal ─────────────────────────────────────────────────────────
 
 export default function ScrapingPage() {
   const [activeTab, setActiveTab] = useState<"html" | "files">("files");
@@ -1079,7 +1165,7 @@ export default function ScrapingPage() {
     <div className="p-8 max-w-4xl mx-auto">
       <h1 className="text-2xl font-bold mb-1">Scraping Web</h1>
       <p className="text-muted-foreground mb-6">
-        Extraia conteúdo de páginas web e arquivos para enriquecer a base de conhecimento RAG.
+        Extraia conteudo de paginas web e arquivos para enriquecer a base de conhecimento RAG.
       </p>
 
       <div className="flex gap-1 p-1 bg-muted rounded-lg mb-6 w-fit">

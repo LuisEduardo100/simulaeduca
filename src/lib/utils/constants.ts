@@ -1,7 +1,7 @@
 // Constantes globais do projeto SimulaEduca
 
 export const APP_NAME = "SimulaEduca";
-export const APP_URL = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
+export const APP_URL = process.env.AUTH_URL ?? "http://localhost:3000";
 
 export const CREDIT_COST = {
   GENERATE_QUESTION: 1,

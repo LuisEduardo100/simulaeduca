@@ -15,6 +15,10 @@ import {
   Database,
   Globe,
   LogOut,
+  Gauge,
+  Bot,
+  HeartPulse,
+  BarChart3,
 } from "lucide-react";
 
 interface SidebarProps {
@@ -32,7 +36,11 @@ const navItems = [
 ];
 
 const adminItems = [
+  { href: "/admin", label: "Painel Admin", icon: Gauge },
+  { href: "/admin/agentes", label: "Agentes IA", icon: Bot },
+  { href: "/admin/saude", label: "Saúde do Sistema", icon: HeartPulse },
   { href: "/admin/knowledge-base", label: "Base de Conhecimento", icon: Database },
+  { href: "/admin/cobertura", label: "Cobertura RAG", icon: BarChart3 },
   { href: "/admin/scraping", label: "Scraping Web", icon: Globe },
 ];
 
@@ -41,6 +49,7 @@ export function Sidebar({ userEmail, userName, userRole }: SidebarProps) {
 
   function isActive(href: string) {
     if (href === "/dashboard") return pathname === "/dashboard";
+    if (href === "/admin") return pathname === "/admin";
     return pathname.startsWith(href);
   }
 

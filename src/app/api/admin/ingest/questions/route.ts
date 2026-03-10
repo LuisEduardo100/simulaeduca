@@ -18,8 +18,9 @@ const questionSchema = z.object({
 });
 
 const schema = z.object({
-  questions: z.array(questionSchema).min(1).max(50),
+  questions: z.array(questionSchema).min(1).max(200),
   sourceUrl: z.string().optional(),
+  sourceFileName: z.string().optional(),
 });
 
 // POST /api/admin/ingest/questions
@@ -41,13 +42,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
   }
 
-  const { questions, sourceUrl } = parsed.data;
+  const { questions, sourceUrl, sourceFileName: explicitFileName } = parsed.data;
 
-  let sourceFileName: string | undefined;
-  try {
-    if (sourceUrl) sourceFileName = `web-${new URL(sourceUrl).hostname}`;
-  } catch {
-    // URL inválida — continua sem sourceFileName
+  let sourceFileName: string | undefined = explicitFileName;
+  if (!sourceFileName && sourceUrl) {
+    try {
+      sourceFileName = `web-${new URL(sourceUrl).hostname}`;
+    } catch {
+      // URL inválida — continua sem sourceFileName
+    }
   }
 
   const result = await ingestQuestions(questions, session.user.id, sourceFileName);

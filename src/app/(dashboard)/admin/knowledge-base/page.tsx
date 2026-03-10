@@ -5,9 +5,21 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import {
+  QuestionCard,
+  type ExtractedQuestion,
+  type ExtractedQuestionUI,
+} from "@/components/admin/question-card";
+import { GlobalMetadata } from "@/components/admin/global-metadata";
 
 interface Material {
   sourceFileName: string | null;
@@ -29,15 +41,29 @@ export default function KnowledgeBasePage() {
   // Upload form state
   const [file, setFile] = useState<File | null>(null);
   const [textContent, setTextContent] = useState("");
-  const [descriptorCode, setDescriptorCode] = useState("");
+  const [evaluationSlug, setEvaluationSlug] = useState("");
   const [subjectSlug, setSubjectSlug] = useState("");
   const [gradeLevelSlug, setGradeLevelSlug] = useState("");
-  const [evaluationSlug, setEvaluationSlug] = useState("");
-  const [difficulty, setDifficulty] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Smart extraction state
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [extractError, setExtractError] = useState<string | null>(null);
+  const [questions, setQuestions] = useState<ExtractedQuestionUI[] | null>(null);
+  const [wasTruncated, setWasTruncated] = useState(false);
+
+  // Question ingestion state
   const [isIngesting, setIsIngesting] = useState(false);
   const [ingestResult, setIngestResult] = useState<string | null>(null);
   const [ingestError, setIngestError] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Reference material fallback state
+  const [showReferenceMode, setShowReferenceMode] = useState(false);
+  const [refDescriptorCode, setRefDescriptorCode] = useState("");
+  const [refDifficulty, setRefDifficulty] = useState("");
+  const [isIngestingRef, setIsIngestingRef] = useState(false);
+  const [refResult, setRefResult] = useState<string | null>(null);
+  const [refError, setRefError] = useState<string | null>(null);
 
   // List state
   const [materials, setMaterials] = useState<Material[]>([]);
@@ -63,48 +89,212 @@ export default function KnowledgeBasePage() {
     }
   }
 
-  async function handleIngest() {
+  function resetState() {
+    setQuestions(null);
+    setExtractError(null);
     setIngestResult(null);
     setIngestError(null);
+    setWasTruncated(false);
+    setShowReferenceMode(false);
+    setRefResult(null);
+    setRefError(null);
+  }
+
+  // ─── Modo Smart: Extrair questoes com IA ─────────────────────────────────────
+
+  async function handleExtractQuestions() {
+    resetState();
 
     if (!file && !textContent.trim()) {
-      setIngestError("Selecione um arquivo ou cole um texto.");
+      setExtractError("Selecione um arquivo ou cole um texto.");
+      return;
+    }
+
+    setIsExtracting(true);
+    try {
+      let data;
+
+      if (file) {
+        // Enviar arquivo para extração server-side
+        const formData = new FormData();
+        formData.append("file", file);
+
+        const res = await fetch("/api/admin/ingest/extract-from-file", {
+          method: "POST",
+          body: formData,
+        });
+        data = await res.json();
+        if (!res.ok) {
+          setExtractError(data.error ?? "Erro ao extrair questoes.");
+          return;
+        }
+      } else {
+        // Enviar texto para extração via endpoint de scraping
+        const res = await fetch("/api/admin/scrape/extract-questions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: textContent }),
+        });
+        data = await res.json();
+        if (!res.ok) {
+          setExtractError(data.error ?? "Erro na extracao com IA.");
+          return;
+        }
+      }
+
+      if (data.wasTruncated) setWasTruncated(true);
+
+      if (data.total === 0) {
+        setExtractError(
+          "Nenhuma questao de multipla escolha encontrada. Use 'Ingerir como Material de Referencia' para apostilas e artigos."
+        );
+        return;
+      }
+
+      setQuestions(
+        (data.questions as ExtractedQuestion[]).map((q, i) => ({
+          ...q,
+          id: `q-${i}-${Date.now()}`,
+          selected: true,
+        }))
+      );
+    } catch {
+      setExtractError("Erro de conexao. Tente novamente.");
+    } finally {
+      setIsExtracting(false);
+    }
+  }
+
+  // ─── Ingerir questoes extraidas ──────────────────────────────────────────────
+
+  async function handleIngestQuestions() {
+    if (!questions) return;
+    const selected = questions.filter((q) => q.selected);
+    if (selected.length === 0) {
+      setIngestError("Selecione pelo menos uma questao.");
       return;
     }
 
     setIsIngesting(true);
+    setIngestResult(null);
+    setIngestError(null);
+    try {
+      const payload = {
+        questions: selected.map((q) => ({
+          stem: q.stem,
+          optionA: q.optionA,
+          optionB: q.optionB,
+          optionC: q.optionC,
+          optionD: q.optionD,
+          correctAnswer: q.correctAnswer || undefined,
+          descriptorCode: q.descriptorCode || undefined,
+          difficulty: (["facil", "medio", "dificil"].includes(q.difficulty)
+            ? q.difficulty
+            : undefined) as "facil" | "medio" | "dificil" | undefined,
+          subjectSlug: subjectSlug || undefined,
+          gradeLevelSlug: gradeLevelSlug || undefined,
+          evaluationSlug: evaluationSlug || undefined,
+        })),
+        sourceFileName: file?.name ?? "texto-manual",
+      };
+
+      const res = await fetch("/api/admin/ingest/questions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        setIngestError(data.error ?? "Erro ao ingerir questoes.");
+      } else {
+        setIngestResult(
+          `${data.inserted} questao(oes) ingerida(s) com sucesso!${
+            data.failed > 0 ? ` (${data.failed} falharam)` : ""
+          }`
+        );
+        // Limpar form
+        setFile(null);
+        setTextContent("");
+        setQuestions(null);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+      }
+    } catch {
+      setIngestError("Erro de conexao. Tente novamente.");
+    } finally {
+      setIsIngesting(false);
+    }
+  }
+
+  // ─── Modo Referencia: Ingerir como material bruto ────────────────────────────
+
+  async function handleIngestReference() {
+    setRefResult(null);
+    setRefError(null);
+
+    if (!file && !textContent.trim()) {
+      setRefError("Selecione um arquivo ou cole um texto.");
+      return;
+    }
+
+    setIsIngestingRef(true);
     try {
       const formData = new FormData();
       if (file) formData.append("file", file);
       if (textContent.trim()) formData.append("text", textContent);
-      if (descriptorCode) formData.append("descriptorCode", descriptorCode);
+      if (refDescriptorCode) formData.append("descriptorCode", refDescriptorCode);
       if (subjectSlug) formData.append("subjectSlug", subjectSlug);
       if (gradeLevelSlug) formData.append("gradeLevelSlug", gradeLevelSlug);
       if (evaluationSlug) formData.append("evaluationSlug", evaluationSlug);
-      if (difficulty) formData.append("difficulty", difficulty);
+      if (refDifficulty) formData.append("difficulty", refDifficulty);
 
       const res = await fetch("/api/admin/ingest", {
         method: "POST",
         body: formData,
       });
-
       const data = await res.json();
 
       if (!res.ok) {
-        setIngestError(data.error ?? "Erro desconhecido.");
+        setRefError(data.error ?? "Erro desconhecido.");
       } else {
-        setIngestResult(`✓ ${data.chunksCreated} chunks criados com sucesso!`);
-        // Limpar form
+        setRefResult(`${data.chunksCreated} chunks criados com sucesso!`);
         setFile(null);
         setTextContent("");
+        setShowReferenceMode(false);
         if (fileInputRef.current) fileInputRef.current.value = "";
       }
     } catch {
-      setIngestError("Erro de conexão. Tente novamente.");
+      setRefError("Erro de conexao. Tente novamente.");
     } finally {
-      setIsIngesting(false);
+      setIsIngestingRef(false);
     }
   }
+
+  // ─── Helpers de questoes ─────────────────────────────────────────────────────
+
+  function toggleQuestion(id: string) {
+    setQuestions((prev) =>
+      prev
+        ? prev.map((q) => (q.id === id ? { ...q, selected: !q.selected } : q))
+        : prev
+    );
+  }
+
+  function updateQuestion(id: string, patch: Partial<ExtractedQuestion>) {
+    setQuestions((prev) =>
+      prev
+        ? prev.map((q) => (q.id === id ? { ...q, ...patch } : q))
+        : prev
+    );
+  }
+
+  function selectAll(val: boolean) {
+    setQuestions((prev) =>
+      prev ? prev.map((q) => ({ ...q, selected: val })) : prev
+    );
+  }
+
+  // ─── Delete material ────────────────────────────────────────────────────────
 
   async function handleDelete(sourceFileName: string) {
     if (!confirm(`Excluir todos os chunks de "${sourceFileName}"?`)) return;
@@ -121,6 +311,8 @@ export default function KnowledgeBasePage() {
       setDeletingFile(null);
     }
   }
+
+  const selectedCount = questions?.filter((q) => q.selected).length ?? 0;
 
   return (
     <div className="p-8 max-w-5xl mx-auto">
@@ -148,74 +340,22 @@ export default function KnowledgeBasePage() {
       {/* Aba: Adicionar Material */}
       {activeTab === "upload" && (
         <div className="space-y-6">
+          {/* Metadata global */}
           <Card className="p-6">
-            <h2 className="text-lg font-semibold mb-4">Metadados do Material</h2>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label htmlFor="evaluation">Avaliação</Label>
-                <Select onValueChange={setEvaluationSlug}>
-                  <SelectTrigger id="evaluation" className="mt-1">
-                    <SelectValue placeholder="Selecionar..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="spaece">SPAECE</SelectItem>
-                    <SelectItem value="saeb">SAEB</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label htmlFor="subject">Disciplina</Label>
-                <Select onValueChange={setSubjectSlug}>
-                  <SelectTrigger id="subject" className="mt-1">
-                    <SelectValue placeholder="Selecionar..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="matematica">Matemática</SelectItem>
-                    <SelectItem value="portugues">Língua Portuguesa</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label htmlFor="gradeLevel">Série</Label>
-                <Select onValueChange={setGradeLevelSlug}>
-                  <SelectTrigger id="gradeLevel" className="mt-1">
-                    <SelectValue placeholder="Selecionar..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="5_ano">5º ano</SelectItem>
-                    <SelectItem value="9_ano">9º ano</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label htmlFor="difficulty">Dificuldade</Label>
-                <Select onValueChange={setDifficulty}>
-                  <SelectTrigger id="difficulty" className="mt-1">
-                    <SelectValue placeholder="Selecionar..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="facil">Fácil</SelectItem>
-                    <SelectItem value="medio">Médio</SelectItem>
-                    <SelectItem value="dificil">Difícil</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="col-span-2">
-                <Label htmlFor="descriptorCode">Código do Descritor (opcional)</Label>
-                <Input
-                  id="descriptorCode"
-                  className="mt-1"
-                  placeholder="ex: D07"
-                  value={descriptorCode}
-                  onChange={(e) => setDescriptorCode(e.target.value.toUpperCase())}
-                  maxLength={5}
-                />
-              </div>
-            </div>
+            <h2 className="text-lg font-semibold mb-4">Metadados Globais</h2>
+            <GlobalMetadata
+              evaluationSlug={evaluationSlug}
+              setEvaluationSlug={setEvaluationSlug}
+              subjectSlug={subjectSlug}
+              setSubjectSlug={setSubjectSlug}
+              gradeLevelSlug={gradeLevelSlug}
+              setGradeLevelSlug={setGradeLevelSlug}
+            />
           </Card>
 
+          {/* Conteudo */}
           <Card className="p-6">
-            <h2 className="text-lg font-semibold mb-4">Conteúdo</h2>
+            <h2 className="text-lg font-semibold mb-4">Conteudo</h2>
 
             {/* Upload de arquivo */}
             <div className="mb-4">
@@ -227,7 +367,10 @@ export default function KnowledgeBasePage() {
                   type="file"
                   accept=".pdf,.docx,.doc,.txt"
                   className="hidden"
-                  onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                  onChange={(e) => {
+                    setFile(e.target.files?.[0] ?? null);
+                    resetState();
+                  }}
                 />
                 <label htmlFor="file" className="cursor-pointer">
                   {file ? (
@@ -253,16 +396,30 @@ export default function KnowledgeBasePage() {
               <textarea
                 id="textContent"
                 className="mt-1 w-full h-40 rounded-md border border-input bg-background px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring"
-                placeholder="Cole aqui questões, matrizes de referência ou qualquer conteúdo educacional..."
+                placeholder="Cole aqui questoes, matrizes de referencia ou qualquer conteudo educacional..."
                 value={textContent}
-                onChange={(e) => setTextContent(e.target.value)}
+                onChange={(e) => {
+                  setTextContent(e.target.value);
+                  resetState();
+                }}
               />
             </div>
           </Card>
 
+          {/* Mensagens de resultado/erro */}
           {ingestResult && (
             <div className="rounded-md bg-green-50 border border-green-200 p-4 text-green-800 text-sm">
               {ingestResult}
+            </div>
+          )}
+          {refResult && (
+            <div className="rounded-md bg-green-50 border border-green-200 p-4 text-green-800 text-sm">
+              {refResult}
+            </div>
+          )}
+          {extractError && (
+            <div className="rounded-md bg-red-50 border border-red-200 p-4 text-red-800 text-sm">
+              {extractError}
             </div>
           )}
           {ingestError && (
@@ -270,14 +427,154 @@ export default function KnowledgeBasePage() {
               {ingestError}
             </div>
           )}
+          {refError && (
+            <div className="rounded-md bg-red-50 border border-red-200 p-4 text-red-800 text-sm">
+              {refError}
+            </div>
+          )}
 
-          <Button
-            onClick={handleIngest}
-            disabled={isIngesting}
-            className="w-full"
-          >
-            {isIngesting ? "Processando..." : "Ingerir Material"}
-          </Button>
+          {/* Botoes de acao (quando ainda nao extraiu) */}
+          {!questions && !showReferenceMode && (
+            <div className="flex gap-3">
+              <Button
+                onClick={handleExtractQuestions}
+                disabled={isExtracting || (!file && !textContent.trim())}
+                className="flex-1"
+              >
+                {isExtracting
+                  ? "Analisando com IA..."
+                  : "Extrair Questoes com IA"}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  resetState();
+                  setShowReferenceMode(true);
+                }}
+                disabled={isExtracting || (!file && !textContent.trim())}
+              >
+                Ingerir como Material de Referencia
+              </Button>
+            </div>
+          )}
+
+          {/* Aviso de truncamento */}
+          {wasTruncated && (
+            <div className="rounded-md bg-amber-50 border border-amber-200 p-3 text-amber-800 text-sm">
+              O texto excedeu 40.000 caracteres e foi truncado para analise. Algumas questoes do final do documento podem nao ter sido extraidas.
+            </div>
+          )}
+
+          {/* Questoes extraidas */}
+          {questions && (
+            <Card className="p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-semibold">
+                  {questions.length} questao(oes) extraida(s)
+                </h2>
+                <div className="flex gap-2">
+                  <Button variant="ghost" size="sm" onClick={() => selectAll(true)}>
+                    Selecionar tudo
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => selectAll(false)}>
+                    Desmarcar tudo
+                  </Button>
+                </div>
+              </div>
+
+              <div className="space-y-2 max-h-[60vh] overflow-y-auto">
+                {questions.map((q, i) => (
+                  <QuestionCard
+                    key={q.id}
+                    question={q}
+                    index={i}
+                    onToggle={() => toggleQuestion(q.id)}
+                    onUpdate={(patch) => updateQuestion(q.id, patch)}
+                  />
+                ))}
+              </div>
+
+              <Separator />
+
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-muted-foreground">
+                  {selectedCount} de {questions.length} selecionada(s)
+                </p>
+                <div className="flex gap-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setQuestions(null);
+                      resetState();
+                    }}
+                  >
+                    Voltar
+                  </Button>
+                  <Button
+                    onClick={handleIngestQuestions}
+                    disabled={isIngesting || selectedCount === 0}
+                  >
+                    {isIngesting
+                      ? "Ingerindo..."
+                      : `Ingerir ${selectedCount} Questao(oes)`}
+                  </Button>
+                </div>
+              </div>
+            </Card>
+          )}
+
+          {/* Modo referencia */}
+          {showReferenceMode && (
+            <Card className="p-6 space-y-4">
+              <h2 className="text-lg font-semibold">Material de Referencia</h2>
+              <p className="text-sm text-muted-foreground">
+                Use este modo para matrizes de referencia, apostilas e artigos que nao sao provas com questoes.
+              </p>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>Dificuldade (opcional)</Label>
+                  <Select onValueChange={setRefDifficulty} value={refDifficulty}>
+                    <SelectTrigger className="mt-1">
+                      <SelectValue placeholder="Selecionar..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="facil">Facil</SelectItem>
+                      <SelectItem value="medio">Medio</SelectItem>
+                      <SelectItem value="dificil">Dificil</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label>Codigo do Descritor (opcional)</Label>
+                  <Input
+                    className="mt-1"
+                    placeholder="ex: D07"
+                    value={refDescriptorCode}
+                    onChange={(e) => setRefDescriptorCode(e.target.value.toUpperCase())}
+                    maxLength={5}
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-2">
+                <Button
+                  variant="ghost"
+                  onClick={() => setShowReferenceMode(false)}
+                >
+                  Voltar
+                </Button>
+                <Button
+                  onClick={handleIngestReference}
+                  disabled={isIngestingRef}
+                  className="flex-1"
+                >
+                  {isIngestingRef ? "Processando..." : "Ingerir Material"}
+                </Button>
+              </div>
+            </Card>
+          )}
         </div>
       )}
 
