@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Separator } from "@/components/ui/separator";
 import {
   Users,
   FileText,
@@ -14,6 +15,9 @@ import {
   BookOpen,
   RefreshCw,
   ArrowRight,
+  Recycle,
+  CheckCircle,
+  ImageIcon,
 } from "lucide-react";
 import Link from "next/link";
 import {
@@ -28,6 +32,17 @@ import {
   Cell,
 } from "recharts";
 
+interface QuestionBankBreakdown {
+  total: number;
+  generated: number;
+  extracted: number;
+  validated: number;
+  with_image: number;
+  total_reuses: number;
+  avg_quality: number;
+  never_used: number;
+}
+
 interface Stats {
   totalUsers: number;
   totalExams: number;
@@ -35,6 +50,8 @@ interface Stats {
   totalMaterialChunks: number;
   totalScrapedSources: number;
   totalQuestionBank: number;
+  questionBankBreakdown: QuestionBankBreakdown;
+  reuseStats: Record<string, number>;
   examsByStatus: { status: string; count: number }[];
   questionsPerDay: { date: string; count: number }[];
   recentExams: {
@@ -146,6 +163,128 @@ export default function AdminDashboardPage() {
           label="Banco de Questoes"
           value={stats.totalQuestionBank}
         />
+      </div>
+
+      {/* Question Bank Breakdown + Reuse Stats */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle className="text-base">Banco de Questoes — Detalhamento</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <StatItem
+                icon={BookOpen}
+                label="Total"
+                value={stats.questionBankBreakdown.total}
+              />
+              <StatItem
+                icon={HelpCircle}
+                label="Geradas por IA"
+                value={stats.questionBankBreakdown.generated}
+                color="text-blue-600"
+              />
+              <StatItem
+                icon={FileText}
+                label="Extraidas"
+                value={stats.questionBankBreakdown.extracted}
+                color="text-purple-600"
+              />
+              <StatItem
+                icon={CheckCircle}
+                label="Validadas"
+                value={stats.questionBankBreakdown.validated}
+                color="text-green-600"
+              />
+            </div>
+            <Separator />
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <StatItem
+                icon={ImageIcon}
+                label="Com Imagem"
+                value={stats.questionBankBreakdown.with_image}
+                color="text-amber-600"
+              />
+              <StatItem
+                icon={Recycle}
+                label="Reutilizacoes"
+                value={stats.questionBankBreakdown.total_reuses}
+                color="text-cyan-600"
+              />
+              <div className="space-y-1">
+                <span className="text-xs text-muted-foreground">Qualidade Media</span>
+                <p className="text-xl font-bold">
+                  {stats.questionBankBreakdown.avg_quality.toFixed(2)}
+                </p>
+              </div>
+              <div className="space-y-1">
+                <span className="text-xs text-muted-foreground">Nunca Usadas</span>
+                <p className="text-xl font-bold text-orange-600">
+                  {stats.questionBankBreakdown.never_used.toLocaleString("pt-BR")}
+                </p>
+              </div>
+            </div>
+            {stats.questionBankBreakdown.total > 0 && (
+              <>
+                <Separator />
+                <div className="flex flex-wrap gap-x-6 gap-y-2 text-xs text-muted-foreground">
+                  <span>
+                    {Math.round((stats.questionBankBreakdown.validated / stats.questionBankBreakdown.total) * 100)}% validadas
+                  </span>
+                  <span>
+                    {Math.round((stats.questionBankBreakdown.with_image / stats.questionBankBreakdown.total) * 100)}% com imagem
+                  </span>
+                  <span>
+                    {Math.round(((stats.questionBankBreakdown.total - stats.questionBankBreakdown.never_used) / stats.questionBankBreakdown.total) * 100)}% ja utilizadas ao menos 1x
+                  </span>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Reuse efficiency */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Eficiencia de Reuso</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {(() => {
+              const generated = stats.reuseStats["generated"] ?? 0;
+              const reused = stats.reuseStats["reused"] ?? 0;
+              const total = generated + reused;
+              const reusePct = total > 0 ? Math.round((reused / total) * 100) : 0;
+              return (
+                <>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Questoes geradas</span>
+                      <span className="font-bold">{generated.toLocaleString("pt-BR")}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Questoes reusadas</span>
+                      <span className="font-bold text-green-600">{reused.toLocaleString("pt-BR")}</span>
+                    </div>
+                    <Separator />
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Total em simulados</span>
+                      <span className="font-bold">{total.toLocaleString("pt-BR")}</span>
+                    </div>
+                  </div>
+                  <div className="rounded-md bg-muted/50 p-4 text-center">
+                    <p className="text-3xl font-bold text-green-600">{reusePct}%</p>
+                    <p className="text-xs text-muted-foreground mt-1">taxa de reuso</p>
+                  </div>
+                  {reused > 0 && (
+                    <p className="text-xs text-muted-foreground text-center">
+                      {reused} questoes reusadas = {reused} creditos economizados
+                    </p>
+                  )}
+                </>
+              );
+            })()}
+          </CardContent>
+        </Card>
       </div>
 
       {/* Charts Row */}
@@ -347,6 +486,30 @@ function MetricCard({
         <p className="text-2xl font-bold">{value.toLocaleString("pt-BR")}</p>
       </CardContent>
     </Card>
+  );
+}
+
+function StatItem({
+  icon: Icon,
+  label,
+  value,
+  color,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  value: number;
+  color?: string;
+}) {
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center gap-1.5">
+        <Icon className={`h-3.5 w-3.5 ${color ?? "text-muted-foreground"}`} />
+        <span className="text-xs text-muted-foreground">{label}</span>
+      </div>
+      <p className={`text-xl font-bold ${color ?? ""}`}>
+        {value.toLocaleString("pt-BR")}
+      </p>
+    </div>
   );
 }
 

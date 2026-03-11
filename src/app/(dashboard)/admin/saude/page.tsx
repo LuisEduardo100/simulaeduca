@@ -13,16 +13,25 @@ import {
   Layers,
   RefreshCw,
   Activity,
+  ListTodo,
 } from "lucide-react";
+
+interface QueueStats {
+  waiting: number;
+  active: number;
+  completed: number;
+  failed: number;
+}
 
 interface HealthData {
   status: "healthy" | "degraded" | "unhealthy";
   timestamp: string;
   services: {
     database: { status: string; latencyMs: number };
-    redis: { status: string; latencyMs?: number };
+    redis: { status: string; latencyMs?: number; mode?: string };
     openai: { status: string; configured: boolean };
     vectorStore: { status: string; totalVectors: number };
+    queue: { status: string; stats?: QueueStats };
   };
   storage: {
     materialChunks: number;
@@ -123,7 +132,7 @@ export default function AdminSaudePage() {
       </div>
 
       {/* Services */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         <ServiceCard
           icon={Database}
           name="PostgreSQL"
@@ -136,11 +145,14 @@ export default function AdminSaudePage() {
           icon={Server}
           name="Redis"
           status={health.services.redis.status}
-          details={
-            health.services.redis.latencyMs != null
+          details={[
+            ...(health.services.redis.latencyMs != null
               ? [`Latencia: ${health.services.redis.latencyMs}ms`]
-              : []
-          }
+              : []),
+            ...(health.services.redis.mode
+              ? [`Modo: ${health.services.redis.mode}`]
+              : []),
+          ]}
         />
         <ServiceCard
           icon={Brain}
@@ -159,6 +171,20 @@ export default function AdminSaudePage() {
           details={[
             `${health.services.vectorStore.totalVectors.toLocaleString("pt-BR")} vetores indexados`,
           ]}
+        />
+        <ServiceCard
+          icon={ListTodo}
+          name="Fila de Geracao (BullMQ)"
+          status={health.services.queue.status}
+          details={
+            health.services.queue.stats
+              ? [
+                  `Aguardando: ${health.services.queue.stats.waiting}`,
+                  `Ativas: ${health.services.queue.stats.active}`,
+                  `Completas: ${health.services.queue.stats.completed} | Falhas: ${health.services.queue.stats.failed}`,
+                ]
+              : []
+          }
         />
       </div>
 

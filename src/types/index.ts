@@ -18,6 +18,9 @@ export interface GeneratedQuestion {
   justification: string;
   difficulty: Difficulty;
   descriptorCode: string;
+  hasImage?: boolean;
+  imageDescription?: string;
+  imageUrl?: string;
 }
 
 export type ColumnLayout = 1 | 2;

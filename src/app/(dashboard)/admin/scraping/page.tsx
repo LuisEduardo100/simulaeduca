@@ -27,6 +27,22 @@ interface FoundFile {
   url: string;
   filename: string;
   type: "pdf" | "docx" | "txt";
+  alreadyProcessed?: boolean;
+  previousStatus?: string | null;
+  questionsFound?: number | null;
+  answerKey?: string | null;
+}
+
+interface BatchFileStatus {
+  id: string;
+  fileName: string;
+  fileUrl: string;
+  fileType: string;
+  status: string;
+  questionsFound: number;
+  questionsIngested: number;
+  errorMessage: string | null;
+  alreadyDone: boolean;
 }
 
 interface IngestFileResult {
@@ -552,6 +568,18 @@ function BatchFileScrapingTab() {
   const [subjectSlug, setSubjectSlug] = useState("");
   const [gradeLevelSlug, setGradeLevelSlug] = useState("");
 
+  // Batch state
+  const [, setBatchId] = useState<string | null>(null);
+  const [batchFiles, setBatchFiles] = useState<BatchFileStatus[]>([]);
+
+  // Resume banner
+  const [resumeBanner, setResumeBanner] = useState<{
+    batchId: string;
+    pending: number;
+    extracted: number;
+    total: number;
+  } | null>(null);
+
   // Smart extraction state
   const [isExtracting, setIsExtracting] = useState(false);
   const [extractProgress, setExtractProgress] = useState<string | null>(null);
@@ -585,6 +613,122 @@ function BatchFileScrapingTab() {
 
   useEffect(() => { loadSources(); }, [loadSources]);
 
+  // Resume-on-mount: check localStorage for pending batch
+  useEffect(() => {
+    async function checkResumeBatch() {
+      const savedBatchId = localStorage.getItem("scraping_batchId");
+      if (!savedBatchId) return;
+
+      try {
+        const res = await fetch(`/api/admin/scrape-files/batch/${savedBatchId}`);
+        if (!res.ok) {
+          localStorage.removeItem("scraping_batchId");
+          return;
+        }
+        const data = await res.json();
+        const files = data.files as BatchFileStatus[];
+        const pending = files.filter((f) => f.status === "pending").length;
+        const extracted = files.filter((f) => f.status === "extracted").length;
+
+        if (pending > 0 || extracted > 0) {
+          setResumeBanner({
+            batchId: savedBatchId,
+            pending,
+            extracted,
+            total: files.length,
+          });
+        } else {
+          localStorage.removeItem("scraping_batchId");
+        }
+      } catch {
+        localStorage.removeItem("scraping_batchId");
+      }
+    }
+    checkResumeBatch();
+  }, []);
+
+  async function handleResumeBatch() {
+    if (!resumeBanner) return;
+    const savedBatchId = resumeBanner.batchId;
+    setResumeBanner(null);
+
+    try {
+      const res = await fetch(`/api/admin/scrape-files/batch/${savedBatchId}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const files = data.files as BatchFileStatus[];
+
+      setBatchId(savedBatchId);
+      setBatchFiles(files);
+
+      const pendingFiles = files.filter((f) => f.status === "pending");
+
+      if (pendingFiles.length > 0) {
+        // Resume extraction for pending files
+        setIsExtracting(true);
+        try {
+          for (let i = 0; i < pendingFiles.length; i++) {
+            const file = pendingFiles[i];
+            setExtractProgress(
+              `Retomando arquivo ${i + 1} de ${pendingFiles.length}: ${file.fileName}...`
+            );
+
+            try {
+              await fetch("/api/admin/scrape-files/extract-questions", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  url: file.fileUrl,
+                  filename: file.fileName,
+                  type: file.fileType,
+                  sourceId: file.id,
+                }),
+              });
+
+              // Refresh batch status
+              const statusRes = await fetch(`/api/admin/scrape-files/batch/${savedBatchId}`);
+              if (statusRes.ok) {
+                const statusData = await statusRes.json();
+                setBatchFiles(statusData.files);
+              }
+            } catch {
+              // Skip failed files
+            }
+          }
+        } finally {
+          setIsExtracting(false);
+          setExtractProgress(null);
+        }
+      }
+
+      // Fetch all questions from batch
+      const qRes = await fetch(`/api/admin/scrape-files/batch/${savedBatchId}/questions`);
+      if (qRes.ok) {
+        const qData = await qRes.json();
+        if (qData.questions && qData.questions.length > 0) {
+          const mapped: ExtractedQuestionUI[] = qData.questions.map(
+            (q: ExtractedQuestion & { sourceId?: string; fileName?: string }, i: number) => ({
+              ...q,
+              id: `q-${i}-${Date.now()}`,
+              selected: true,
+              sourceId: q.sourceId,
+            })
+          );
+          setQuestions(mapped);
+        } else {
+          setExtractError("Nenhuma questao encontrada no batch retomado.");
+        }
+      }
+    } catch {
+      setExtractError("Erro ao retomar batch.");
+    }
+  }
+
+  function handleDismissResume() {
+    localStorage.removeItem("scraping_batchId");
+    setResumeBanner(null);
+  }
+
   async function handleScan(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setScanError(null);
@@ -611,7 +755,11 @@ function BatchFileScrapingTab() {
         setPageUrl(data.pageUrl);
         if (data.files.length === 0)
           setScanError("Nenhum arquivo PDF, DOCX ou TXT encontrado nesta pagina.");
-        else setSelectedFiles(new Set(data.files.map((f: FoundFile) => f.url)));
+        else {
+          // By default select only files that are NOT already processed
+          const notProcessed = (data.files as FoundFile[]).filter((f) => !f.alreadyProcessed);
+          setSelectedFiles(new Set(notProcessed.map((f) => f.url)));
+        }
       }
     } catch { setScanError("Erro de conexao."); }
     finally { setIsScanning(false); }
@@ -646,47 +794,99 @@ function BatchFileScrapingTab() {
     }
 
     setIsExtracting(true);
-    const allQuestions: ExtractedQuestionUI[] = [];
-    let questionIndex = 0;
 
     try {
-      for (let i = 0; i < filesToProcess.length; i++) {
-        const file = filesToProcess[i];
+      // Step 1: Create batch
+      const batchRes = await fetch("/api/admin/scrape-files/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          pageUrl,
+          files: filesToProcess.map((f) => ({
+            url: f.url,
+            filename: f.filename,
+            type: f.type,
+          })),
+          metadata: {
+            subjectSlug: subjectSlug || undefined,
+            gradeLevelSlug: gradeLevelSlug || undefined,
+            evaluationSlug: evaluationSlug || undefined,
+          },
+        }),
+      });
+      const batchData = await batchRes.json();
+      if (!batchRes.ok) {
+        setExtractError(batchData.error ?? "Erro ao criar batch.");
+        return;
+      }
+
+      const newBatchId = batchData.batchId as string;
+      const batchFileList = batchData.files as BatchFileStatus[];
+      setBatchId(newBatchId);
+      setBatchFiles(batchFileList);
+      localStorage.setItem("scraping_batchId", newBatchId);
+
+      // Step 2: For each pending file, call extract-questions with sourceId
+      // Criar mapa de answerKey por URL para correlacionar com batch files
+      const answerKeyMap = new Map<string, string>();
+      for (const f of filesToProcess) {
+        if (f.answerKey) answerKeyMap.set(f.url, f.answerKey);
+      }
+
+      const pendingFiles = batchFileList.filter((f) => !f.alreadyDone);
+
+      for (let i = 0; i < pendingFiles.length; i++) {
+        const file = pendingFiles[i];
         setExtractProgress(
-          `Processando arquivo ${i + 1} de ${filesToProcess.length}: ${file.filename}...`
+          `Processando arquivo ${i + 1} de ${pendingFiles.length}: ${file.fileName}...`
         );
 
         try {
-          const res = await fetch("/api/admin/scrape-files/extract-questions", {
+          await fetch("/api/admin/scrape-files/extract-questions", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              url: file.url,
-              filename: file.filename,
-              type: file.type,
+              url: file.fileUrl,
+              filename: file.fileName,
+              type: file.fileType,
+              sourceId: file.id,
+              answerKey: answerKeyMap.get(file.fileUrl) || undefined,
             }),
           });
-          const data = await res.json();
 
-          if (res.ok && data.questions) {
-            const mapped = (data.questions as ExtractedQuestion[]).map((q) => ({
-              ...q,
-              id: `q-${questionIndex++}-${Date.now()}`,
-              selected: true,
-            }));
-            allQuestions.push(...mapped);
+          // Refresh batch status after each file
+          const statusRes = await fetch(`/api/admin/scrape-files/batch/${newBatchId}`);
+          if (statusRes.ok) {
+            const statusData = await statusRes.json();
+            setBatchFiles(statusData.files);
           }
         } catch {
           // Skip failed files
         }
       }
 
-      if (allQuestions.length === 0) {
+      // Step 3: Fetch all questions from batch
+      const qRes = await fetch(`/api/admin/scrape-files/batch/${newBatchId}/questions`);
+      if (!qRes.ok) {
+        setExtractError("Erro ao buscar questoes do batch.");
+        return;
+      }
+      const qData = await qRes.json();
+
+      if (!qData.questions || qData.questions.length === 0) {
         setExtractError(
           "Nenhuma questao encontrada nos arquivos selecionados. Tente 'Ingerir como Texto Bruto'."
         );
       } else {
-        setQuestions(allQuestions);
+        const mapped: ExtractedQuestionUI[] = qData.questions.map(
+          (q: ExtractedQuestion & { sourceId?: string; fileName?: string }, i: number) => ({
+            ...q,
+            id: `q-${i}-${Date.now()}`,
+            selected: true,
+            sourceId: q.sourceId,
+          })
+        );
+        setQuestions(mapped);
       }
     } finally {
       setIsExtracting(false);
@@ -711,42 +911,64 @@ function BatchFileScrapingTab() {
       let totalInserted = 0;
       let totalFailed = 0;
 
-      for (let i = 0; i < selected.length; i += 200) {
-        const batch = selected.slice(i, i + 200);
-        const payload = {
-          questions: batch.map((q) => ({
-            stem: q.stem,
-            optionA: q.optionA,
-            optionB: q.optionB,
-            optionC: q.optionC,
-            optionD: q.optionD,
-            correctAnswer: q.correctAnswer || undefined,
-            descriptorCode: q.descriptorCode || undefined,
-            difficulty: (["facil", "medio", "dificil"].includes(q.difficulty)
-              ? q.difficulty
-              : undefined) as "facil" | "medio" | "dificil" | undefined,
-            subjectSlug: subjectSlug || undefined,
-            gradeLevelSlug: gradeLevelSlug || undefined,
-            evaluationSlug: evaluationSlug || undefined,
-          })),
-          sourceFileName: `scrape-${new URL(pageUrl).hostname}`,
-        };
+      // Group questions by sourceId for tracking
+      const bySource = new Map<string | undefined, (typeof selected)>();
+      for (const q of selected) {
+        const sid = (q as ExtractedQuestionUI & { sourceId?: string }).sourceId;
+        if (!bySource.has(sid)) bySource.set(sid, []);
+        bySource.get(sid)!.push(q);
+      }
 
-        const res = await fetch("/api/admin/ingest/questions", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        const data = await res.json();
-        if (res.ok) {
-          totalInserted += data.inserted ?? 0;
-          totalFailed += data.failed ?? 0;
-        } else {
-          totalFailed += batch.length;
+      for (const [sourceId, sourceQuestions] of bySource) {
+        // Batch in groups of 200
+        for (let i = 0; i < sourceQuestions.length; i += 200) {
+          const batch = sourceQuestions.slice(i, i + 200);
+          const payload = {
+            questions: batch.map((q) => ({
+              stem: q.stem,
+              optionA: q.optionA,
+              optionB: q.optionB,
+              optionC: q.optionC,
+              optionD: q.optionD,
+              correctAnswer: q.correctAnswer || undefined,
+              descriptorCode: q.descriptorCode || undefined,
+              difficulty: (["facil", "medio", "dificil"].includes(q.difficulty)
+                ? q.difficulty
+                : undefined) as "facil" | "medio" | "dificil" | undefined,
+              subjectSlug: subjectSlug || undefined,
+              gradeLevelSlug: gradeLevelSlug || undefined,
+              evaluationSlug: evaluationSlug || undefined,
+              hasImage: q.hasImage || undefined,
+              imageDescription: q.imageDescription || undefined,
+              imageUrl: q.imageUrl || undefined,
+            })),
+            sourceId: sourceId || undefined,
+            sourceFileName: `scrape-${pageUrl ? new URL(pageUrl).hostname : "batch"}`,
+          };
+
+          const res = await fetch("/api/admin/ingest/questions", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          const data = await res.json();
+          if (res.ok) {
+            totalInserted += data.inserted ?? 0;
+            totalFailed += data.failed ?? 0;
+          } else {
+            totalFailed += batch.length;
+          }
         }
       }
 
       setIngestResult({ inserted: totalInserted, failed: totalFailed });
+
+      // Clear batchId from localStorage after successful ingestion
+      if (totalInserted > 0) {
+        localStorage.removeItem("scraping_batchId");
+        setBatchId(null);
+        setBatchFiles([]);
+      }
     } catch {
       setIngestError("Erro de conexao. Tente novamente.");
     } finally {
@@ -820,6 +1042,32 @@ function BatchFileScrapingTab() {
 
   return (
     <div className="space-y-6">
+      {/* Resume banner */}
+      {resumeBanner && (
+        <Card className="p-4 border-amber-200 bg-amber-50">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium text-amber-900">
+                Batch anterior encontrado com {resumeBanner.pending} arquivo(s) pendente(s)
+                {resumeBanner.extracted > 0 && ` e ${resumeBanner.extracted} com questoes extraidas`}
+                {" "}(total: {resumeBanner.total})
+              </p>
+              <p className="text-xs text-amber-700 mt-0.5">
+                Deseja retomar o processamento?
+              </p>
+            </div>
+            <div className="flex gap-2 shrink-0">
+              <Button size="sm" onClick={handleResumeBatch}>
+                Retomar
+              </Button>
+              <Button size="sm" variant="outline" onClick={handleDismissResume}>
+                Descartar
+              </Button>
+            </div>
+          </div>
+        </Card>
+      )}
+
       {/* Scanner */}
       <Card className="p-6">
         <h2 className="text-lg font-semibold mb-1">1. Escanear pagina para arquivos</h2>
@@ -878,8 +1126,30 @@ function BatchFileScrapingTab() {
                     className="mt-0.5"
                   />
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{file.filename}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-medium truncate">{file.filename}</p>
+                      {file.alreadyProcessed && (
+                        <span className="text-xs font-medium px-2 py-0.5 rounded border bg-green-100 text-green-700 border-green-200 shrink-0">
+                          Ja extraido{file.questionsFound != null ? ` (${file.questionsFound} questoes)` : ""}
+                        </span>
+                      )}
+                      {!file.alreadyProcessed && file.previousStatus === "extracted" && (
+                        <span className="text-xs font-medium px-2 py-0.5 rounded border bg-yellow-100 text-yellow-700 border-yellow-200 shrink-0">
+                          Questoes pendentes
+                        </span>
+                      )}
+                      {file.answerKey && (
+                        <span className="text-xs font-medium px-2 py-0.5 rounded border bg-purple-100 text-purple-700 border-purple-200 shrink-0">
+                          Gabarito detectado
+                        </span>
+                      )}
+                    </div>
                     <p className="text-xs text-muted-foreground truncate">{file.url}</p>
+                    {file.answerKey && (
+                      <p className="text-xs text-purple-600 mt-0.5 truncate" title={file.answerKey}>
+                        Gabarito: {file.answerKey.length > 60 ? file.answerKey.slice(0, 60) + "..." : file.answerKey}
+                      </p>
+                    )}
                   </div>
                   <span className={`text-xs font-medium px-2 py-0.5 rounded border ${typeBadgeColor(file.type)}`}>
                     {file.type.toUpperCase()}
@@ -921,6 +1191,36 @@ function BatchFileScrapingTab() {
           {extractProgress && (
             <div className="rounded-md bg-blue-50 border border-blue-200 p-3 text-blue-800 text-sm">
               {extractProgress}
+            </div>
+          )}
+
+          {batchFiles.length > 0 && isExtracting && (
+            <div className="space-y-1">
+              {batchFiles.map((bf) => (
+                <div
+                  key={bf.id}
+                  className={`flex items-center justify-between px-3 py-2 rounded-md border text-xs ${
+                    bf.status === "extracted"
+                      ? "bg-green-50 border-green-200 text-green-800"
+                      : bf.status === "error"
+                        ? "bg-red-50 border-red-200 text-red-800"
+                        : bf.alreadyDone
+                          ? "bg-gray-50 border-gray-200 text-gray-600"
+                          : "bg-muted/30 border-border text-muted-foreground"
+                  }`}
+                >
+                  <span className="truncate">{bf.fileName}</span>
+                  <span className="shrink-0 ml-2 font-medium">
+                    {bf.alreadyDone
+                      ? `Ja feito (${bf.questionsFound}q)`
+                      : bf.status === "extracted"
+                        ? `${bf.questionsFound} questoes`
+                        : bf.status === "error"
+                          ? bf.errorMessage ?? "Erro"
+                          : "Pendente"}
+                  </span>
+                </div>
+              ))}
             </div>
           )}
 

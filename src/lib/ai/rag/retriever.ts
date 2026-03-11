@@ -23,6 +23,8 @@ interface RawChunkRow {
   similarity: number;
 }
 
+const MIN_SIMILARITY = 0.5;
+
 export async function retrieveRelevantChunks(
   query: string,
   options: RetrievalOptions
@@ -34,7 +36,8 @@ export async function retrieveRelevantChunks(
   const vectorStr = `[${queryEmbedding.join(",")}]`;
 
   // Busca por similaridade cosseno com filtros por metadados
-  // Prioriza chunks do mesmo descritor, depois da mesma disciplina/série
+  // Prioriza chunks do mesmo descritor (CASE), depois da mesma disciplina/série
+  // Filtra chunks com similaridade mínima para evitar contexto irrelevante
   const rows = await prisma.$queryRaw<RawChunkRow[]>`
     SELECT
       content,
@@ -48,7 +51,10 @@ export async function retrieveRelevantChunks(
         descriptor_code = ${descriptorCode}
         OR (subject_slug = ${subjectSlug} AND grade_level_slug = ${gradeLevelSlug})
       )
-    ORDER BY embedding <=> ${vectorStr}::vector
+      AND 1 - (embedding <=> ${vectorStr}::vector) >= ${MIN_SIMILARITY}
+    ORDER BY
+      CASE WHEN descriptor_code = ${descriptorCode} THEN 0 ELSE 1 END,
+      embedding <=> ${vectorStr}::vector
     LIMIT ${topK}
   `;
 

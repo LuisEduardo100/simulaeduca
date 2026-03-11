@@ -6,9 +6,11 @@ export function buildQuestionGenerationPrompt(params: {
   descriptorDescription: string;
   gradeLevel: string;
   subject: string;
+  difficulty?: string;
   relevantChunks: RetrievedChunk[];
+  existingQuestions?: { stem: string; correctAnswer: string }[];
 }): string {
-  const { descriptorCode, descriptorDescription, gradeLevel, subject, relevantChunks } = params;
+  const { descriptorCode, descriptorDescription, gradeLevel, subject, difficulty, relevantChunks, existingQuestions } = params;
 
   const context =
     relevantChunks.length > 0
@@ -17,26 +19,50 @@ export function buildQuestionGenerationPrompt(params: {
           .join("\n\n")
       : "Nenhum exemplo disponível na base de conhecimento para este descritor.";
 
+  const difficultyLabel = difficulty === "facil" ? "FÁCIL" : difficulty === "dificil" ? "DIFÍCIL" : "MÉDIO";
+  const difficultyGuidelines = difficulty === "facil"
+    ? `- Use situações simples e diretas, com números pequenos e poucos passos de resolução
+- Evite informações desnecessárias ou pegadinhas
+- Os distratores devem representar erros básicos (ex: operação errada, leitura equivocada)`
+    : difficulty === "dificil"
+    ? `- Use situações que exijam múltiplos passos de raciocínio ou interpretação
+- Inclua informações complementares que o aluno precisa filtrar
+- Os distratores devem representar erros sofisticados (ex: aplicar apenas parte do procedimento, confundir conceitos próximos)`
+    : `- Use situações com complexidade moderada, exigindo 2-3 passos de raciocínio
+- Os distratores devem representar erros comuns plausíveis dessa série`;
+
   return `Você é um especialista em elaboração de itens de avaliação educacional para o SPAECE e SAEB, com foco em ${subject}.
 
 DESCRITOR: ${descriptorCode} — ${descriptorDescription}
 SÉRIE: ${gradeLevel}
 DISCIPLINA: ${subject}
+DIFICULDADE: ${difficultyLabel}
+
+DIRETRIZES DE DIFICULDADE (${difficultyLabel}):
+${difficultyGuidelines}
 
 EXEMPLOS DE MATERIAIS DE REFERÊNCIA (contexto RAG):
 ${context}
-
+${existingQuestions && existingQuestions.length > 0 ? `
+QUESTÕES JÁ EXISTENTES NO BANCO (NÃO REPITA estes padrões — crie algo DIFERENTE):
+${existingQuestions.map((eq, i) => `${i + 1}. "${eq.stem.slice(0, 150)}${eq.stem.length > 150 ? "..." : ""}" (Gab: ${eq.correctAnswer})`).join("\n")}
+` : ""}
 INSTRUÇÕES OBRIGATÓRIAS:
 1. Crie UMA questão de múltipla escolha com 4 alternativas (A, B, C, D)
-2. Apenas UMA alternativa deve estar correta
+2. Apenas UMA alternativa deve estar correta — sem ambiguidade
 3. Os distratores (alternativas erradas) devem representar erros comuns dos alunos dessa série — erros de raciocínio plausíveis, não respostas absurdas
 4. O enunciado deve ser contextualizado em situações do cotidiano do aluno
 5. A linguagem deve ser adequada para alunos do ${gradeLevel} — clara, objetiva e sem ambiguidade
-6. Se necessário, descreva figuras ou gráficos em formato textual entre colchetes, ex: [Figura: tabela com dados de temperatura]
+6. Se a questão envolver dados tabulares, use tabela em formato Markdown no enunciado:
+| Coluna1 | Coluna2 |
+|---------|---------|
+| dado1   | dado2   |
+Para figuras não-tabulares (gráficos, mapas, ilustrações), descreva entre colchetes: [Figura: descrição da imagem]
 7. A questão deve avaliar EXATAMENTE a habilidade descrita no descritor ${descriptorCode}
 8. Não repita questões já presentes nos exemplos — crie uma questão INÉDITA
+9. A dificuldade DEVE ser "${difficulty || "medio"}" conforme as diretrizes acima
 
-FORMATO DE RESPOSTA (retorne APENAS o JSON, sem texto adicional):
+Responda APENAS com JSON:
 {
   "stem": "Enunciado completo da questão aqui...",
   "optionA": "Primeira alternativa",
@@ -45,7 +71,7 @@ FORMATO DE RESPOSTA (retorne APENAS o JSON, sem texto adicional):
   "optionD": "Quarta alternativa",
   "correctAnswer": "A",
   "justification": "Explicação detalhada de por que a alternativa correta é correta e por que os distratores estão errados",
-  "difficulty": "medio"
+  "difficulty": "${difficulty || "medio"}"
 }`;
 }
 

@@ -13,18 +13,29 @@ export async function hasEnoughCredits(userId: string, amount: number): Promise<
   return balance >= amount;
 }
 
+// Transação atômica: verifica saldo E deduz no mesmo lock (previne race condition)
 export async function deductCredits(
   userId: string,
   amount: number,
   examId: string,
   description: string
 ): Promise<void> {
-  await prisma.$transaction([
-    prisma.user.update({
+  await prisma.$transaction(async (tx) => {
+    const user = await tx.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { creditsBalance: true },
+    });
+
+    if (user.creditsBalance < amount) {
+      throw new Error(`Créditos insuficientes. Saldo: ${user.creditsBalance}, necessário: ${amount}.`);
+    }
+
+    await tx.user.update({
       where: { id: userId },
       data: { creditsBalance: { decrement: amount } },
-    }),
-    prisma.creditTransaction.create({
+    });
+
+    await tx.creditTransaction.create({
       data: {
         userId,
         amount: -amount,
@@ -32,8 +43,8 @@ export async function deductCredits(
         description,
         examId,
       },
-    }),
-  ]);
+    });
+  });
 }
 
 export async function addCredits(

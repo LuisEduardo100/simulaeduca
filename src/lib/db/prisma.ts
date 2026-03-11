@@ -4,7 +4,12 @@ import { PrismaPg } from "@prisma/adapter-pg";
 
 const connectionString = `${process.env.DATABASE_URL}`;
 
-const pool = new Pool({ connectionString });
+const pool = new Pool({
+  connectionString,
+  max: 20,                          // suporta ~50 usuários simultâneos
+  idleTimeoutMillis: 30000,         // fechar conexões ociosas após 30s
+  connectionTimeoutMillis: 5000,    // timeout ao adquirir conexão
+});
 const adapter = new PrismaPg(pool);
 
 const globalForPrisma = globalThis as unknown as {

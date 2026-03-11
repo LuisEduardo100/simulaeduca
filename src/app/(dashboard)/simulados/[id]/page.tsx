@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { ResumeGeneration } from "@/components/simulado/ResumeGeneration";
+import { StemRenderer } from "@/components/simulado/StemRenderer";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -33,6 +34,7 @@ export default async function SimuladoDetailPage({ params }: PageProps) {
   if (!session?.user?.id) redirect("/login");
 
   const { id } = await params;
+  const isAdmin = session.user.role === "admin";
 
   const exam = await prisma.exam.findUnique({
     where: { id },
@@ -54,6 +56,10 @@ export default async function SimuladoDetailPage({ params }: PageProps) {
   }
 
   const options = ["A", "B", "C", "D"] as const;
+
+  // Stats admin-only: contar reusadas vs geradas
+  const reusedCount = isAdmin ? exam.questions.filter((q) => q.source === "reused").length : 0;
+  const generatedCount = isAdmin ? exam.questions.length - reusedCount : 0;
 
   return (
     <main className="p-8 max-w-4xl mx-auto">
@@ -79,6 +85,11 @@ export default async function SimuladoDetailPage({ params }: PageProps) {
             {" "} · {exam.creditsConsumed} credito(s) consumido(s) ·{" "}
             {new Date(exam.createdAt).toLocaleDateString("pt-BR")}
           </p>
+          {isAdmin && exam.questions.length > 0 && (
+            <p className="text-xs mt-1 text-blue-600">
+              Admin: {generatedCount} gerada(s) · {reusedCount} reusada(s)
+            </p>
+          )}
         </div>
         <Link href="/simulados/historico">
           <Button variant="ghost" size="sm">&larr; Historico</Button>
@@ -141,10 +152,18 @@ export default async function SimuladoDetailPage({ params }: PageProps) {
                   <Badge variant="secondary" className="text-xs capitalize">
                     {q.difficulty}
                   </Badge>
+                  {isAdmin && (
+                    <Badge
+                      variant={q.source === "reused" ? "default" : "outline"}
+                      className={`text-xs ${q.source === "reused" ? "bg-blue-100 text-blue-800 hover:bg-blue-100" : "bg-emerald-50 text-emerald-700"}`}
+                    >
+                      {q.source === "reused" ? "Reusada" : "Gerada"}
+                    </Badge>
+                  )}
                 </div>
               </div>
 
-              <p className="text-sm mb-4 leading-relaxed">{q.stem}</p>
+              <StemRenderer stem={q.stem} className="text-sm mb-4 leading-relaxed" />
 
               <div className="space-y-2">
                 {options.map((letter) => {

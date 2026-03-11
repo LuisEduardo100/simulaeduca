@@ -1,6 +1,7 @@
 import { auth } from "@/lib/utils/auth";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
+import { getCachedEntity, setCachedEntity } from "@/lib/cache";
 
 // GET /api/simulados — listar simulados do usuário autenticado
 export async function GET(request: NextRequest) {
@@ -57,10 +58,21 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Lookup with Redis cache (entities change rarely)
+  async function cachedLookup<T extends { id: number | string }>(
+    type: string, slug: string, finder: () => Promise<T | null>
+  ): Promise<T | null> {
+    const cached = await getCachedEntity<T>(type, slug);
+    if (cached) return cached;
+    const result = await finder();
+    if (result) await setCachedEntity(type, slug, result);
+    return result;
+  }
+
   const [evaluation, subject, gradeLevel] = await Promise.all([
-    prisma.evaluation.findUnique({ where: { slug: evaluationSlug } }),
-    prisma.subject.findUnique({ where: { slug: subjectSlug } }),
-    prisma.gradeLevel.findUnique({ where: { slug: gradeLevelSlug } }),
+    cachedLookup("evaluation", evaluationSlug, () => prisma.evaluation.findUnique({ where: { slug: evaluationSlug } })),
+    cachedLookup("subject", subjectSlug, () => prisma.subject.findUnique({ where: { slug: subjectSlug } })),
+    cachedLookup("gradeLevel", gradeLevelSlug, () => prisma.gradeLevel.findUnique({ where: { slug: gradeLevelSlug } })),
   ]);
 
   if (!evaluation || !subject || !gradeLevel) {

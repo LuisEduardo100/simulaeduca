@@ -2,6 +2,8 @@ import { auth } from "@/lib/utils/auth";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { generateExamPdf, generateAnswerKeyPdf } from "@/lib/pdf/generator";
+import { readQuestionImageAsDataUri } from "@/lib/utils/image-storage";
+import { rateLimitOrNull } from "@/lib/cache/rate-limiter";
 import type { HeaderConfig } from "@/types";
 
 // GET /api/simulados/pdf?examId=...&type=exam|answer_key
@@ -10,6 +12,11 @@ export async function GET(request: NextRequest) {
 
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
+  }
+
+  const rl = await rateLimitOrNull(session.user.id, "pdf");
+  if (rl) {
+    return NextResponse.json({ error: rl.error }, { status: rl.status, headers: rl.headers });
   }
 
   const { searchParams } = new URL(request.url);
@@ -51,6 +58,31 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  // Resolver imagens das questões para data URIs (PDF renderiza inline)
+  const questionsWithImages = await Promise.all(
+    exam.questions.map(async (q) => {
+      let imageDataUri: string | undefined;
+      if (q.hasImage && q.imageUrl) {
+        const dataUri = await readQuestionImageAsDataUri(q.imageUrl);
+        if (dataUri) imageDataUri = dataUri;
+      }
+      return {
+        number: q.questionNumber,
+        stem: q.stem,
+        optionA: q.optionA,
+        optionB: q.optionB,
+        optionC: q.optionC,
+        optionD: q.optionD,
+        correctAnswer: q.correctAnswer,
+        justification: q.justification ?? undefined,
+        descriptorCode: q.descriptor.code,
+        hasImage: q.hasImage,
+        imageDescription: q.imageDescription ?? undefined,
+        imageDataUri,
+      };
+    })
+  );
+
   const pdfData = {
     title: exam.title,
     teacherName: exam.teacherName,
@@ -59,16 +91,7 @@ export async function GET(request: NextRequest) {
     gradeLevel: exam.gradeLevel.name,
     evaluation: exam.evaluation.name,
     headerConfig: (exam.headerConfig as HeaderConfig | null) ?? null,
-    questions: exam.questions.map((q) => ({
-      number: q.questionNumber,
-      stem: q.stem,
-      optionA: q.optionA,
-      optionB: q.optionB,
-      optionC: q.optionC,
-      optionD: q.optionD,
-      correctAnswer: q.correctAnswer,
-      descriptorCode: q.descriptor.code,
-    })),
+    questions: questionsWithImages,
   };
 
   const buffer =

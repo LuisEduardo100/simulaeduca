@@ -179,31 +179,9 @@ export function SimuladoForm({ userProfile }: SimuladoFormProps) {
         throw new Error("Resposta inesperada do servidor ao criar simulado.");
       }
 
-      // 2. Iniciar geração com IA
+      // 2. Transicionar para tela de progresso — GenerationProgress inicia a geração via SSE
       setGeneratingExamId(examId);
       setStep("generating");
-
-      const gerarRes = await fetch("/api/simulados/gerar", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          examId,
-          descriptors: distribution.map((d) => ({
-            descriptorId: d.descriptorId,
-            questionCount: d.questionCount,
-          })),
-          difficulty,
-        }),
-      });
-
-      if (!gerarRes.ok && gerarRes.status !== 207) {
-        let errorMsg = "Erro ao gerar questoes.";
-        try {
-          const data = await gerarRes.json();
-          errorMsg = data.error ?? errorMsg;
-        } catch { /* resposta não é JSON */ }
-        throw new Error(errorMsg);
-      }
     } catch (err) {
       if (!generatingExamId) {
         setError(err instanceof Error ? err.message : "Erro inesperado.");

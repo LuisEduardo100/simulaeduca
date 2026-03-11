@@ -1,6 +1,7 @@
 import { auth } from "@/lib/utils/auth";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { rateLimitOrNull } from "@/lib/cache/rate-limiter";
 
 const schema = z.object({
   url: z.string().url("URL inválida."),
@@ -10,6 +11,12 @@ export interface FoundFile {
   url: string;
   filename: string;
   type: "pdf" | "docx" | "txt";
+  answerKey?: string; // gabarito encontrado na página, ex: "1-A, 2-C, 3-B, 4-D"
+}
+
+// Parsed answer key: question number → letter
+export interface ParsedAnswerKey {
+  [questionNumber: number]: string; // "A"|"B"|"C"|"D"
 }
 
 function decodeHTMLEntities(text: string): string {
@@ -21,6 +28,116 @@ function decodeHTMLEntities(text: string): string {
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
     .replace(/&apos;/g, "'");
+}
+
+/**
+ * Extrai gabaritos (answer keys) do HTML da página.
+ * Detecta padrões como:
+ * - "Gabarito: 1-A, 2-C, 3-B, 4-D..."
+ * - "GABARITO  01) A  02) C  03) B..."
+ * - "1.A 2.C 3.B 4.D"
+ * - "1-A / 2-C / 3-B"
+ * Retorna array de gabaritos encontrados, na ordem que aparecem na página.
+ */
+function extractAnswerKeys(html: string): string[] {
+  // Remover tags HTML, preservar quebras de linha
+  const text = html
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/?(p|div|li|tr|td|th|h[1-6]|blockquote)[^>]*>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ");
+  const decoded = decodeHTMLEntities(text);
+
+  const results: string[] = [];
+
+  // Padrão 1: "Gabarito" seguido de lista de respostas na mesma região
+  const gabaritoRegex = /gabarito[s]?\s*[:.\-—]\s*([\s\S]{10,500}?)(?=gabarito|$)/gi;
+  let m;
+  while ((m = gabaritoRegex.exec(decoded)) !== null) {
+    const block = m[1].trim();
+    // Extrair pares questão-resposta do bloco
+    const pairs = parseAnswerPairs(block);
+    if (pairs.length >= 3) {
+      results.push(pairs.map((p) => `${p.num}-${p.letter}`).join(", "));
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Parsea pares questão-resposta de texto livre.
+ * Suporta: "1-A, 2-C", "01) A  02) C", "1.A 2.C", "1-A / 2-C"
+ */
+function parseAnswerPairs(text: string): { num: number; letter: string }[] {
+  const pairs: { num: number; letter: string }[] = [];
+  const seen = new Set<number>();
+
+  // Padrão genérico: número + separador + letra (A-D)
+  const pairRegex = /(\d{1,3})\s*[).\-–—:]\s*([A-Da-d])\b/g;
+  let m;
+  while ((m = pairRegex.exec(text)) !== null) {
+    const num = parseInt(m[1], 10);
+    const letter = m[2].toUpperCase();
+    if (num > 0 && num <= 100 && !seen.has(num)) {
+      pairs.push({ num, letter });
+      seen.add(num);
+    }
+  }
+
+  return pairs.sort((a, b) => a.num - b.num);
+}
+
+/**
+ * Correlaciona gabaritos com arquivos.
+ * Estratégia: busca o gabarito mais próximo (no HTML) de cada link de arquivo.
+ * Se há N arquivos e N gabaritos, associa 1:1 na ordem.
+ * Se há 1 gabarito e N arquivos, associa o gabarito ao arquivo mais próximo.
+ */
+function correlateAnswerKeys(
+  files: FoundFile[],
+  html: string,
+  answerKeys: string[]
+): FoundFile[] {
+  if (answerKeys.length === 0 || files.length === 0) return files;
+
+  // Se contagem bate, associar 1:1
+  if (answerKeys.length === files.length) {
+    return files.map((f, i) => ({ ...f, answerKey: answerKeys[i] }));
+  }
+
+  // Caso contrário: correlacionar por posição no HTML
+  // Encontrar posição de cada link e cada gabarito no texto
+  const textOnly = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+
+  const filePositions = files.map((f) => {
+    const idx = textOnly.indexOf(f.filename);
+    return { file: f, pos: idx >= 0 ? idx : Infinity };
+  });
+
+  const gabPositions = answerKeys.map((gab) => {
+    // Buscar a primeira parte do gabarito no texto
+    const firstPart = gab.split(",")[0].trim();
+    const searchStr = firstPart.replace("-", "");
+    const idx = textOnly.indexOf(searchStr);
+    return { gab, pos: idx >= 0 ? idx : Infinity };
+  });
+
+  // Para cada arquivo, encontrar o gabarito mais próximo (que aparece DEPOIS dele)
+  return filePositions.map(({ file, pos }) => {
+    let bestGab: string | undefined;
+    let bestDist = Infinity;
+
+    for (const { gab, pos: gabPos } of gabPositions) {
+      const dist = Math.abs(gabPos - pos);
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestGab = gab;
+      }
+    }
+
+    return bestGab ? { ...file, answerKey: bestGab } : file;
+  });
 }
 
 function extractFileLinks(html: string, baseUrl: string): FoundFile[] {
@@ -119,6 +236,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Acesso negado." }, { status: 403 });
   }
 
+  const rl = await rateLimitOrNull(session.user.id, "scraping");
+  if (rl) {
+    return NextResponse.json({ error: rl.error }, { status: rl.status, headers: rl.headers });
+  }
+
   const body = await request.json();
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
@@ -160,9 +282,37 @@ export async function POST(request: NextRequest) {
     }
 
     const html = await response.text();
-    const files = extractFileLinks(html, url);
+    let files = extractFileLinks(html, url);
 
-    return NextResponse.json({ files, total: files.length, pageUrl: url });
+    // Extrair gabaritos da página e correlacionar com arquivos
+    const answerKeys = extractAnswerKeys(html);
+    if (answerKeys.length > 0) {
+      files = correlateAnswerKeys(files, html, answerKeys);
+    }
+
+    // Cross-reference com scraped_sources para dedup
+    const { prisma: db } = await import("@/lib/db/prisma");
+    const fileUrls = files.map((f) => f.url);
+    const existingSources = fileUrls.length > 0
+      ? await db.scrapedSource.findMany({
+          where: { fileUrl: { in: fileUrls }, extractionMode: "smart" },
+          select: { fileUrl: true, status: true, questionsFound: true, questionsIngested: true },
+        })
+      : [];
+    const existingMap = new Map(existingSources.map((e) => [e.fileUrl, e]));
+
+    const filesWithDedup = files.map((f) => {
+      const prev = existingMap.get(f.url);
+      return {
+        ...f,
+        alreadyProcessed: prev ? (prev.status === "extracted" || prev.status === "ingested") : false,
+        previousStatus: prev?.status ?? null,
+        questionsFound: prev?.questionsFound ?? null,
+        answerKey: f.answerKey ?? null,
+      };
+    });
+
+    return NextResponse.json({ files: filesWithDedup, total: files.length, pageUrl: url });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Erro desconhecido";
     if (message.includes("timeout") || message.includes("TimeoutError")) {

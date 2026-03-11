@@ -2,17 +2,26 @@ import { auth } from "@/lib/utils/auth";
 import { prisma } from "@/lib/db/prisma";
 import { NextResponse } from "next/server";
 import net from "net";
+import { isRedisReady, redis } from "@/lib/cache/redis";
 
 type ServiceStatus = "up" | "down";
+
+interface QueueStats {
+  waiting: number;
+  active: number;
+  completed: number;
+  failed: number;
+}
 
 interface HealthResponse {
   status: "healthy" | "degraded" | "unhealthy";
   timestamp: string;
   services: {
     database: { status: ServiceStatus; latencyMs: number };
-    redis: { status: ServiceStatus | "not_configured"; latencyMs?: number };
+    redis: { status: ServiceStatus | "not_configured"; latencyMs?: number; mode?: string };
     openai: { status: ServiceStatus; configured: boolean };
     vectorStore: { status: ServiceStatus; totalVectors: number };
+    queue: { status: ServiceStatus | "not_configured"; stats?: QueueStats };
   };
   storage: {
     materialChunks: number;
@@ -73,14 +82,49 @@ export async function GET() {
     dbStatus = "down";
   }
 
-  // --- Redis health ---
+  // --- Redis health (use actual ioredis client) ---
   let redisResult: HealthResponse["services"]["redis"];
   const redisUrl = process.env.REDIS_URL;
   if (redisUrl) {
-    const check = await checkRedis(redisUrl);
-    redisResult = { status: check.status, latencyMs: check.latencyMs };
+    if (isRedisReady()) {
+      try {
+        const redisStart = performance.now();
+        await redis.ping();
+        const redisLatency = Math.round(performance.now() - redisStart);
+        redisResult = { status: "up", latencyMs: redisLatency, mode: "ioredis" };
+      } catch {
+        redisResult = { status: "down", mode: "ioredis" };
+      }
+    } else {
+      // Fallback to TCP check
+      const check = await checkRedis(redisUrl);
+      redisResult = { status: check.status, latencyMs: check.latencyMs, mode: "tcp-fallback" };
+    }
   } else {
     redisResult = { status: "not_configured" };
+  }
+
+  // --- BullMQ Queue health ---
+  let queueResult: HealthResponse["services"]["queue"];
+  if (isRedisReady()) {
+    try {
+      const { getGenerationQueue } = await import("@/lib/queue/generation-queue");
+      const queue = getGenerationQueue();
+      const [waiting, active, completed, failed] = await Promise.all([
+        queue.getWaitingCount(),
+        queue.getActiveCount(),
+        queue.getCompletedCount(),
+        queue.getFailedCount(),
+      ]);
+      queueResult = {
+        status: "up",
+        stats: { waiting, active, completed, failed },
+      };
+    } catch {
+      queueResult = { status: "down" };
+    }
+  } else {
+    queueResult = { status: "not_configured" };
   }
 
   // --- OpenAI health ---
@@ -138,6 +182,7 @@ export async function GET() {
       redis: redisResult,
       openai: { status: openaiStatus, configured: openaiConfigured },
       vectorStore: { status: vectorStoreStatus, totalVectors },
+      queue: queueResult,
     },
     storage: {
       materialChunks,

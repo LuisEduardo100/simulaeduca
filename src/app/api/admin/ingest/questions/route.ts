@@ -1,7 +1,7 @@
 import { auth } from "@/lib/utils/auth";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { ingestQuestions } from "@/lib/ai/rag/ingest";
+import { ingestQuestions, ingestExtractedToQuestionBank } from "@/lib/ai/rag/ingest";
 
 const questionSchema = z.object({
   stem: z.string().min(20),
@@ -15,12 +15,16 @@ const questionSchema = z.object({
   subjectSlug: z.string().optional(),
   gradeLevelSlug: z.string().optional(),
   evaluationSlug: z.string().optional(),
+  hasImage: z.boolean().optional(),
+  imageDescription: z.string().optional(),
+  imageUrl: z.string().optional(),
 });
 
 const schema = z.object({
   questions: z.array(questionSchema).min(1).max(200),
   sourceUrl: z.string().optional(),
   sourceFileName: z.string().optional(),
+  sourceId: z.string().uuid().optional(), // ScrapedSource ID para tracking
 });
 
 // POST /api/admin/ingest/questions
@@ -42,7 +46,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
   }
 
-  const { questions, sourceUrl, sourceFileName: explicitFileName } = parsed.data;
+  const { questions, sourceUrl, sourceFileName: explicitFileName, sourceId } = parsed.data;
 
   let sourceFileName: string | undefined = explicitFileName;
   if (!sourceFileName && sourceUrl) {
@@ -54,6 +58,24 @@ export async function POST(request: NextRequest) {
   }
 
   const result = await ingestQuestions(questions, session.user.id, sourceFileName);
+
+  // Também inserir no question_bank para reuso futuro (fire-and-forget)
+  ingestExtractedToQuestionBank(questions, sourceFileName).catch((err) => {
+    console.warn("[ingest/questions] Falha ao inserir no question_bank:", err);
+  });
+
+  // Atualizar ScrapedSource se fornecido
+  if (sourceId && result.inserted > 0) {
+    const { prisma } = await import("@/lib/db/prisma");
+    await prisma.scrapedSource.update({
+      where: { id: sourceId },
+      data: {
+        questionsIngested: { increment: result.inserted },
+        chunksCreated: { increment: result.inserted },
+        status: "ingested",
+      },
+    }).catch(() => {});
+  }
 
   return NextResponse.json(result);
 }

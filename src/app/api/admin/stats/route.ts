@@ -31,6 +31,8 @@ export async function GET() {
       questionsPerDay,
       recentExams,
       topDescriptors,
+      questionBankBreakdown,
+      reuseStats,
     ] = await Promise.all([
       // Overview counts
       prisma.user.count(),
@@ -81,7 +83,43 @@ export async function GET() {
          ORDER BY count DESC
          LIMIT 10`
       ),
+
+      // Question bank detailed breakdown
+      prisma.$queryRawUnsafe<{
+        total: number;
+        generated: number;
+        extracted: number;
+        validated: number;
+        with_image: number;
+        total_reuses: number;
+        avg_quality: number;
+        never_used: number;
+      }[]>(
+        `SELECT
+           COUNT(*)::int AS total,
+           COUNT(*) FILTER (WHERE origin = 'generated')::int AS generated,
+           COUNT(*) FILTER (WHERE origin = 'extracted')::int AS extracted,
+           COUNT(*) FILTER (WHERE validated = true)::int AS validated,
+           COUNT(*) FILTER (WHERE has_image = true)::int AS with_image,
+           COALESCE(SUM(times_used), 0)::int AS total_reuses,
+           ROUND(COALESCE(AVG(quality_score), 0)::numeric, 2)::float AS avg_quality,
+           COUNT(*) FILTER (WHERE times_used = 0)::int AS never_used
+         FROM question_bank
+         WHERE flagged = false`
+      ),
+
+      // Reuse stats from exam_questions (generated vs reused)
+      prisma.$queryRawUnsafe<{ source: string; count: number }[]>(
+        `SELECT source, COUNT(*)::int AS count
+         FROM exam_questions
+         GROUP BY source`
+      ),
     ]);
+
+    const qbBreakdown = questionBankBreakdown[0] ?? {
+      total: 0, generated: 0, extracted: 0, validated: 0,
+      with_image: 0, total_reuses: 0, avg_quality: 0, never_used: 0,
+    };
 
     return NextResponse.json({
       totalUsers,
@@ -90,6 +128,13 @@ export async function GET() {
       totalMaterialChunks,
       totalScrapedSources,
       totalQuestionBank,
+
+      questionBankBreakdown: qbBreakdown,
+
+      reuseStats: reuseStats.reduce((acc, row) => {
+        acc[row.source] = row.count;
+        return acc;
+      }, {} as Record<string, number>),
 
       examsByStatus: examsByStatus.map((row) => ({
         status: row.status,

@@ -170,6 +170,7 @@ model Exam {
   headerConfig    Json?     @map("header_config") // { mode: "standard"|"custom"|"none", imageUrl?, teacherName?, school?, discipline?, class?, examDate? }
   difficulty      String?   // facil, medio, dificil, misto — dificuldade geral da prova
   descriptorDistribution Json? @map("descriptor_distribution") // [{descriptorId, questionCount, difficulty?}] para retomada
+  assessmentType  String    @default("simulado") @map("assessment_type") // simulado, atividade, prova_avaliativa
   pdfUrl          String?   @map("pdf_url")
   answerSheetUrl  String?   @map("answer_sheet_url")
   answerKeyUrl    String?   @map("answer_key_url")
@@ -201,7 +202,10 @@ model ExamQuestion {
   difficulty       String   @default("medio") // facil, medio, dificil
   hasImage         Boolean  @default(false) @map("has_image")
   imageDescription String?  @map("image_description")
+  imageUrl         String?  @map("image_url") // caminho relativo em storage/question-images/
   generationModel  String?  @map("generation_model") // gpt-4o, claude-3.5-sonnet
+  questionBankId   String?  @db.Uuid @map("question_bank_id") // referência à questão reusada
+  source           String   @default("generated") // generated, reused
   createdAt        DateTime @default(now()) @map("created_at")
 
   exam       Exam       @relation(fields: [examId], references: [id], onDelete: Cascade)
@@ -269,48 +273,83 @@ model MaterialChunk {
 // ─── Rastreio de Scraping de Arquivos ────────────────────────────────────────
 
 model ScrapedSource {
-  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  pageUrl        String   @map("page_url")           // URL da página onde o arquivo foi encontrado
-  fileName       String   @map("file_name")          // nome original do arquivo
-  fileUrl        String   @map("file_url")           // URL de download do arquivo
-  fileType       String   @map("file_type")          // pdf, docx, txt
-  fileSize       Int?     @map("file_size")          // tamanho em bytes
-  storedPath     String?  @map("stored_path")        // caminho local onde foi salvo
-  chunksCreated  Int      @default(0) @map("chunks_created")
-  descriptorCode String?  @map("descriptor_code")
-  subjectSlug    String?  @map("subject_slug")
-  gradeLevelSlug String?  @map("grade_level_slug")
-  evaluationSlug String?  @map("evaluation_slug")
-  difficulty     String?
-  scrapedBy      String   @db.Uuid @map("scraped_by")
-  createdAt      DateTime @default(now()) @map("created_at")
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  pageUrl           String   @map("page_url")           // URL da página onde o arquivo foi encontrado
+  fileName          String   @map("file_name")          // nome original do arquivo
+  fileUrl           String   @map("file_url")           // URL de download do arquivo
+  fileType          String   @map("file_type")          // pdf, docx, txt
+  fileSize          Int?     @map("file_size")          // tamanho em bytes
+  storedPath        String?  @map("stored_path")        // caminho local onde foi salvo
+  chunksCreated     Int      @default(0) @map("chunks_created")
+  descriptorCode    String?  @map("descriptor_code")
+  subjectSlug       String?  @map("subject_slug")
+  gradeLevelSlug    String?  @map("grade_level_slug")
+  evaluationSlug    String?  @map("evaluation_slug")
+  difficulty        String?
+  extractionMode    String   @default("raw") @map("extraction_mode")    // raw | smart
+  status            String   @default("pending") @map("status")          // pending | extracting | extracted | ingested | failed
+  questionsFound    Int      @default(0) @map("questions_found")
+  questionsIngested Int      @default(0) @map("questions_ingested")
+  errorMessage      String?  @map("error_message")
+  extractedData     Json?    @map("extracted_data")                      // questões extraídas persistidas server-side
+  batchId           String?  @map("batch_id")                            // agrupa arquivos de uma mesma sessão
+  scrapedBy         String   @db.Uuid @map("scraped_by")
+  createdAt         DateTime @default(now()) @map("created_at")
 
   scraper User @relation(fields: [scrapedBy], references: [id])
 
+  @@unique([fileUrl, extractionMode])
   @@map("scraped_sources")
 }
 
 // ─── Banco de Questões com pgvector ──────────────────────────────────────────
 
 model QuestionBank {
-  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  descriptorId  Int      @map("descriptor_id")
-  stem          String
-  optionA       String   @map("option_a")
-  optionB       String   @map("option_b")
-  optionC       String   @map("option_c")
-  optionD       String   @map("option_d")
-  correctAnswer String   @db.Char(1) @map("correct_answer")
-  justification String?
-  difficulty    String?
-  qualityScore  Decimal? @map("quality_score") @db.Decimal(3, 2) // 0.00 a 1.00
-  timesUsed     Int      @default(0) @map("times_used")
-  flagged       Boolean  @default(false)
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  descriptorId     Int      @map("descriptor_id")
+  stem             String
+  optionA          String   @map("option_a")
+  optionB          String   @map("option_b")
+  optionC          String   @map("option_c")
+  optionD          String   @map("option_d")
+  correctAnswer    String   @db.Char(1) @map("correct_answer")
+  justification    String?
+  difficulty       String?
+  qualityScore     Decimal? @map("quality_score") @db.Decimal(3, 2) // 0.00 a 1.00
+  timesUsed        Int      @default(0) @map("times_used")
+  flagged          Boolean  @default(false)
+  origin           String   @default("generated") // generated | extracted | manual
+  hasImage         Boolean  @default(false) @map("has_image")
+  imageDescription String?  @map("image_description")
+  imageUrl         String?  @map("image_url") // caminho relativo em storage/question-images/
+  subjectSlug      String?  @map("subject_slug")
+  gradeLevelSlug   String?  @map("grade_level_slug")
+  evaluationSlug   String?  @map("evaluation_slug")
+  sourceFileName   String?  @map("source_file_name")
+  validated        Boolean  @default(false)
   // Embedding para busca semântica RAG (text-embedding-3-small = 1536 dims)
-  embedding     Unsupported("vector(1536)")?
-  createdAt     DateTime @default(now()) @map("created_at")
+  embedding        Unsupported("vector(1536)")?
+  createdAt        DateTime @default(now()) @map("created_at")
 
-  descriptor Descriptor @relation(fields: [descriptorId], references: [id])
+  descriptor Descriptor     @relation(fields: [descriptorId], references: [id])
+  usages     QuestionUsage[]
 
+  @@index([descriptorId, flagged, validated, difficulty, qualityScore], map: "idx_qb_reuse")
   @@map("question_bank")
+}
+
+// ─── Rastreio de Uso de Questões ────────────────────────────────────────────
+
+model QuestionUsage {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  questionBankId String   @db.Uuid @map("question_bank_id")
+  examId         String   @db.Uuid @map("exam_id")
+  userId         String   @db.Uuid @map("user_id")
+  usedAt         DateTime @default(now()) @map("used_at")
+
+  questionBank QuestionBank @relation(fields: [questionBankId], references: [id])
+
+  @@unique([questionBankId, examId])
+  @@index([userId, usedAt(sort: Desc)], map: "idx_qu_user")
+  @@map("question_usages")
 }

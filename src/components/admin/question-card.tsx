@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { StemRenderer } from "@/components/simulado/StemRenderer";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -9,6 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
 
 export interface ExtractedQuestion {
   stem: string;
@@ -19,6 +21,9 @@ export interface ExtractedQuestion {
   correctAnswer: string;
   descriptorCode: string;
   difficulty: string;
+  hasImage?: boolean;
+  imageDescription?: string;
+  imageUrl?: string;
 }
 
 export interface ExtractedQuestionUI extends ExtractedQuestion {
@@ -99,10 +104,15 @@ export function QuestionCard({
                 <SelectItem value="D">D</SelectItem>
               </SelectContent>
             </Select>
+            {question.hasImage && (
+              <Badge variant="secondary" className="text-xs h-5 px-1.5">
+                Imagem
+              </Badge>
+            )}
           </div>
 
           {/* Stem */}
-          <p className="text-sm text-foreground leading-snug">{stemPreview}</p>
+          <StemRenderer stem={stemPreview} className="text-sm text-foreground leading-snug" />
           {question.stem.length > 120 && (
             <button
               onClick={() => setExpanded((v) => !v)}
@@ -113,7 +123,25 @@ export function QuestionCard({
           )}
           {expanded && (
             <div className="mt-2 space-y-1 text-sm border-t pt-2">
-              <p className="whitespace-pre-wrap text-foreground">{question.stem}</p>
+              <StemRenderer stem={question.stem} className="whitespace-pre-wrap text-foreground" />
+
+              {/* Preview da imagem */}
+              {question.hasImage && question.imageUrl && (
+                <div className="my-2">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={`/api/question-images?path=${encodeURIComponent(question.imageUrl)}`}
+                    alt={question.imageDescription || "Imagem da questao"}
+                    className="max-h-48 max-w-full rounded border object-contain"
+                  />
+                  {question.imageDescription && (
+                    <p className="text-xs text-muted-foreground mt-1 italic">
+                      {question.imageDescription}
+                    </p>
+                  )}
+                </div>
+              )}
+
               <div className="mt-2 space-y-0.5 text-muted-foreground">
                 <p>A) {question.optionA}</p>
                 <p>B) {question.optionB}</p>

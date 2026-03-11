@@ -18,7 +18,11 @@ export interface ExamPdfData {
     optionC: string;
     optionD: string;
     correctAnswer: string;
+    justification?: string;
     descriptorCode: string;
+    hasImage?: boolean;
+    imageDescription?: string;
+    imageDataUri?: string; // data:image/...;base64,... para renderização inline
   }[];
 }
 
@@ -120,9 +124,10 @@ const styles = StyleSheet.create({
     fontFamily: "Helvetica-Bold",
     fontSize: 10,
     marginBottom: 8,
+    marginTop: 4,
   },
   resolItem: {
-    marginBottom: 8,
+    marginBottom: 10,
   },
   resolHeader: {
     fontFamily: "Helvetica-Bold",
@@ -132,6 +137,71 @@ const styles = StyleSheet.create({
     fontSize: 9,
     color: "#333",
     paddingLeft: 8,
+    marginTop: 2,
+  },
+  // ─── Grade de gabarito do aluno (bubble sheet) ───
+  answerGridContainer: {
+    borderWidth: 1,
+    borderColor: "#000",
+    borderStyle: "solid",
+    marginBottom: 14,
+    padding: 8,
+  },
+  answerGridTitle: {
+    fontSize: 9,
+    fontFamily: "Helvetica-Bold",
+    textAlign: "center" as const,
+    marginBottom: 6,
+    textTransform: "uppercase" as const,
+  },
+  answerGridColumnsWrap: {
+    flexDirection: "row" as const,
+    justifyContent: "center" as const,
+    gap: 20,
+  },
+  answerGridColumn: {
+    flexGrow: 1,
+  },
+  answerGridRow: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    borderBottomWidth: 0.5,
+    borderBottomColor: "#ddd",
+    borderBottomStyle: "solid" as const,
+    paddingVertical: 1.5,
+    minHeight: 15,
+  },
+  answerGridRowAlt: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    borderBottomWidth: 0.5,
+    borderBottomColor: "#ddd",
+    borderBottomStyle: "solid" as const,
+    paddingVertical: 1.5,
+    minHeight: 15,
+    backgroundColor: "#f5f5f5",
+  },
+  answerGridNum: {
+    width: 20,
+    fontSize: 8,
+    fontFamily: "Helvetica-Bold",
+    textAlign: "center" as const,
+  },
+  answerGridBubble: {
+    width: 13,
+    height: 13,
+    borderRadius: 6.5,
+    borderWidth: 1,
+    borderColor: "#333",
+    borderStyle: "solid" as const,
+    marginHorizontal: 3,
+    justifyContent: "center" as const,
+    alignItems: "center" as const,
+  },
+  answerGridBubbleLetter: {
+    fontSize: 7,
+    fontFamily: "Helvetica",
+    color: "#333",
   },
   // Layout 2 colunas
   twoColContainer: {
@@ -143,7 +213,7 @@ const styles = StyleSheet.create({
   },
   twoColPage: {
     fontFamily: "Helvetica",
-    fontSize: 8,
+    fontSize: 9,
     padding: 25,
     lineHeight: 1.3,
   },
@@ -152,14 +222,14 @@ const styles = StyleSheet.create({
   },
   twoColQuestionNumber: {
     fontFamily: "Helvetica-Bold",
-    fontSize: 8,
+    fontSize: 9,
     marginBottom: 2,
   },
   twoColStem: {
-    fontSize: 8,
+    fontSize: 9,
   },
   twoColOption: {
-    fontSize: 8,
+    fontSize: 9,
     marginBottom: 1,
     paddingLeft: 6,
   },
@@ -168,9 +238,34 @@ const styles = StyleSheet.create({
     color: "#888",
     marginTop: 1,
   },
+  // Imagem de questão
+  questionImage: {
+    maxHeight: 160,
+    maxWidth: 350,
+    objectFit: "contain" as const,
+    marginTop: 4,
+    marginBottom: 4,
+    alignSelf: "center" as const,
+  },
+  twoColQuestionImage: {
+    maxHeight: 100,
+    maxWidth: 200,
+    objectFit: "contain" as const,
+    marginTop: 3,
+    marginBottom: 3,
+    alignSelf: "center" as const,
+  },
+  imageCaption: {
+    fontSize: 7,
+    color: "#666",
+    textAlign: "center" as const,
+    marginBottom: 4,
+    fontStyle: "italic" as const,
+  },
 });
 
 const ce = React.createElement;
+const LETTERS = ["A", "B", "C", "D"];
 
 function formatDate(dateStr?: string): string {
   if (!dateStr) return "__ / __ / ______";
@@ -181,6 +276,57 @@ function formatDate(dateStr?: string): string {
     return dateStr;
   }
 }
+
+// ─── Grade de gabarito do aluno (bubble sheet) ────────────────────────────────
+
+function AnswerGridRow(num: number, idx: number) {
+  const rowStyle = idx % 2 === 0 ? styles.answerGridRow : styles.answerGridRowAlt;
+  return ce(
+    View,
+    { key: `ag-${num}`, style: rowStyle },
+    ce(Text, { style: styles.answerGridNum }, String(num)),
+    ...LETTERS.map((letter) =>
+      ce(
+        View,
+        { key: `ag-${num}-${letter}`, style: styles.answerGridBubble },
+        ce(Text, { style: styles.answerGridBubbleLetter }, letter)
+      )
+    )
+  );
+}
+
+function StudentAnswerGrid(totalQuestions: number) {
+  // Dividir em colunas para ficar compacto (até 4 colunas para 26+ questões)
+  const colCount = totalQuestions <= 10 ? 2 : totalQuestions <= 20 ? 3 : 4;
+  const perCol = Math.ceil(totalQuestions / colCount);
+  const columns: number[][] = [];
+  for (let c = 0; c < colCount; c++) {
+    const start = c * perCol + 1;
+    const end = Math.min((c + 1) * perCol, totalQuestions);
+    const col: number[] = [];
+    for (let i = start; i <= end; i++) col.push(i);
+    if (col.length > 0) columns.push(col);
+  }
+
+  return ce(
+    View,
+    { style: styles.answerGridContainer, wrap: false },
+    ce(Text, { style: styles.answerGridTitle }, "Gabarito do Aluno"),
+    ce(
+      View,
+      { style: styles.answerGridColumnsWrap },
+      ...columns.map((col, cIdx) =>
+        ce(
+          View,
+          { key: `col-${cIdx}`, style: styles.answerGridColumn },
+          ...col.map((num, idx) => AnswerGridRow(num, idx))
+        )
+      )
+    )
+  );
+}
+
+// ─── Headers ──────────────────────────────────────────────────────────────────
 
 function StandardHeader(data: ExamPdfData) {
   const hc = data.headerConfig;
@@ -303,34 +449,146 @@ function buildHeader(data: ExamPdfData) {
   }
 }
 
+// ─── Markdown table parser for PDF ───────────────────────────────────────────
+
+const TABLE_REGEX = /(\|.+\|)\n(\|[\s:|-]+\|)\n((?:\|.+\|\n?)+)/g;
+
+interface ParsedTable {
+  headers: string[];
+  rows: string[][];
+}
+
+function parseMarkdownTables(text: string): { parts: ({ type: "text"; content: string } | { type: "table"; table: ParsedTable })[] } {
+  const parts: ({ type: "text"; content: string } | { type: "table"; table: ParsedTable })[] = [];
+  let lastIndex = 0;
+
+  for (const match of text.matchAll(TABLE_REGEX)) {
+    const before = text.slice(lastIndex, match.index);
+    if (before.trim()) parts.push({ type: "text", content: before.trim() });
+
+    const headerLine = match[1];
+    const dataLines = match[3].trim().split("\n");
+
+    const headers = headerLine.split("|").filter(c => c.trim()).map(c => c.trim());
+    const rows = dataLines.map(line =>
+      line.split("|").filter(c => c.trim()).map(c => c.trim())
+    );
+
+    parts.push({ type: "table", table: { headers, rows } });
+    lastIndex = match.index! + match[0].length;
+  }
+
+  const remaining = text.slice(lastIndex);
+  if (remaining.trim()) parts.push({ type: "text", content: remaining.trim() });
+
+  return { parts };
+}
+
+const pdfTableStyles = StyleSheet.create({
+  table: { marginVertical: 4, borderWidth: 0.5, borderColor: "#333" },
+  headerRow: { flexDirection: "row", backgroundColor: "#e8e8e8", borderBottomWidth: 0.5, borderBottomColor: "#333" },
+  row: { flexDirection: "row", borderBottomWidth: 0.5, borderBottomColor: "#ccc" },
+  headerCell: { flex: 1, padding: 3, fontFamily: "Helvetica-Bold", fontSize: 8, borderRightWidth: 0.5, borderRightColor: "#ccc" },
+  cell: { flex: 1, padding: 3, fontSize: 8, borderRightWidth: 0.5, borderRightColor: "#ccc" },
+});
+
+function renderStemWithTables(
+  stem: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  textStyle?: any
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+): React.ReactElement<any>[] {
+  const { parts } = parseMarkdownTables(stem);
+
+  // No tables found — return plain text
+  if (parts.length === 1 && parts[0].type === "text") {
+    return [ce(Text, { key: "stem", ...(textStyle ? { style: textStyle } : {}) }, stem)];
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const elements: React.ReactElement<any>[] = [];
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    if (part.type === "text") {
+      elements.push(ce(Text, { key: `stem-${i}`, ...(textStyle ? { style: textStyle } : {}) }, part.content));
+    } else {
+      const { headers, rows } = part.table;
+      const tableChildren = [
+        ce(
+          View,
+          { key: "thead", style: pdfTableStyles.headerRow },
+          ...headers.map((h, hi) =>
+            ce(Text, { key: `th-${hi}`, style: pdfTableStyles.headerCell }, h)
+          )
+        ),
+        ...rows.map((row, ri) =>
+          ce(
+            View,
+            { key: `tr-${ri}`, style: pdfTableStyles.row },
+            ...row.map((cell, ci) =>
+              ce(Text, { key: `td-${ri}-${ci}`, style: pdfTableStyles.cell }, cell)
+            )
+          )
+        ),
+      ];
+      elements.push(ce(View, { key: `table-${i}`, style: pdfTableStyles.table }, ...tableChildren));
+    }
+  }
+  return elements;
+}
+
+// ─── Blocos de questão ────────────────────────────────────────────────────────
+
 function QuestionBlock(q: ExamPdfData["questions"][number], twoCol: boolean) {
   const s = twoCol
-    ? { block: styles.twoColQuestionBlock, num: styles.twoColQuestionNumber, stem: styles.twoColStem, opt: styles.twoColOption, tag: styles.twoColDescriptorTag }
-    : { block: styles.questionBlock, num: styles.questionNumber, stem: undefined, opt: styles.option, tag: styles.descriptorTag };
+    ? { block: styles.twoColQuestionBlock, num: styles.twoColQuestionNumber, stem: styles.twoColStem, opt: styles.twoColOption, tag: styles.twoColDescriptorTag, img: styles.twoColQuestionImage }
+    : { block: styles.questionBlock, num: styles.questionNumber, stem: undefined, opt: styles.option, tag: styles.descriptorTag, img: styles.questionImage };
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const children: React.ReactElement<any>[] = [
+    ce(
+      View,
+      { key: "header", style: { flexDirection: "row" as const, justifyContent: "space-between" as const, marginBottom: 3 } },
+      ce(Text, { style: s.num }, `Questão ${q.number}`),
+      ce(Text, { style: s.tag }, `Descritor: ${q.descriptorCode}`)
+    ),
+    ...renderStemWithTables(q.stem, s.stem),
+  ];
+
+  // Renderizar imagem da questão (se disponível)
+  if (q.hasImage && q.imageDataUri) {
+    children.push(
+      ce(Image, { key: "img", src: q.imageDataUri, style: s.img })
+    );
+    if (q.imageDescription) {
+      children.push(
+        ce(Text, { key: "caption", style: styles.imageCaption }, q.imageDescription)
+      );
+    }
+  }
+
+  children.push(
+    ce(Text, { key: "a", style: s.opt }, `A) ${q.optionA}`),
+    ce(Text, { key: "b", style: s.opt }, `B) ${q.optionB}`),
+    ce(Text, { key: "c", style: s.opt }, `C) ${q.optionC}`),
+    ce(Text, { key: "d", style: s.opt }, `D) ${q.optionD}`)
+  );
 
   return ce(
     View,
     { key: String(q.number), style: s.block, wrap: false },
-    ce(
-      View,
-      { style: { flexDirection: "row" as const, justifyContent: "space-between" as const, marginBottom: 3 } },
-      ce(Text, { style: s.num }, `Questão ${q.number}`),
-      ce(Text, { style: s.tag }, `Descritor: ${q.descriptorCode}`)
-    ),
-    ce(Text, s.stem ? { style: s.stem } : null, q.stem),
-    ce(Text, { style: s.opt }, `A) ${q.optionA}`),
-    ce(Text, { style: s.opt }, `B) ${q.optionB}`),
-    ce(Text, { style: s.opt }, `C) ${q.optionC}`),
-    ce(Text, { style: s.opt }, `D) ${q.optionD}`)
+    ...children
   );
 }
 
+// ─── Documentos ───────────────────────────────────────────────────────────────
+
 function ExamDocument(data: ExamPdfData) {
   const columns = data.headerConfig?.columns ?? 1;
+  const totalQ = data.questions.length;
 
   if (columns === 2) {
-    // Layout 2 colunas: dividir questões entre coluna esquerda e direita
-    const mid = Math.ceil(data.questions.length / 2);
+    const mid = Math.ceil(totalQ / 2);
     const leftQuestions = data.questions.slice(0, mid);
     const rightQuestions = data.questions.slice(mid);
 
@@ -341,6 +599,7 @@ function ExamDocument(data: ExamPdfData) {
         Page,
         { size: "A4", style: styles.twoColPage },
         buildHeader(data),
+        StudentAnswerGrid(totalQ),
         ce(
           View,
           { style: styles.twoColContainer },
@@ -367,6 +626,7 @@ function ExamDocument(data: ExamPdfData) {
       Page,
       { size: "A4", style: styles.page },
       buildHeader(data),
+      StudentAnswerGrid(totalQ),
       ...data.questions.map((q) => QuestionBlock(q, false))
     )
   );
@@ -390,9 +650,10 @@ function AnswerKeyDocument(data: ExamPdfData) {
           data.gradeLevel,
         ].filter(Boolean).join(" · ")
       ),
+      // Grid de respostas
       ce(
         View,
-        { style: styles.keyRow },
+        { style: { ...styles.keyRow, marginTop: 12 } },
         ...data.questions.map((q) =>
           ce(
             View,
@@ -403,11 +664,12 @@ function AnswerKeyDocument(data: ExamPdfData) {
           )
         )
       ),
-      ce(Text, { style: styles.resolTitle }, "Resoluções:"),
+      // Justificativas completas
+      ce(Text, { style: styles.resolTitle }, "Justificativas e Resoluções:"),
       ...data.questions.map((q) =>
         ce(
           View,
-          { key: `r${q.number}`, style: styles.resolItem },
+          { key: `r${q.number}`, style: styles.resolItem, wrap: false },
           ce(
             Text,
             { style: styles.resolHeader },
@@ -415,9 +677,20 @@ function AnswerKeyDocument(data: ExamPdfData) {
           ),
           ce(
             Text,
-            { style: styles.resolText },
-            q.stem.length > 100 ? q.stem.slice(0, 100) + "…" : q.stem
-          )
+            { style: { ...styles.resolText, fontStyle: "italic" as const } },
+            q.stem.length > 200 ? q.stem.slice(0, 200) + "..." : q.stem
+          ),
+          q.justification
+            ? ce(
+                Text,
+                { style: { ...styles.resolText, marginTop: 3 } },
+                q.justification
+              )
+            : ce(
+                Text,
+                { style: { ...styles.resolText, color: "#999", marginTop: 2 } },
+                "(Justificativa não disponível)"
+              )
         )
       )
     )
